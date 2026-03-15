@@ -14,6 +14,8 @@ import { colors, spacing } from '../theme';
 import { getPairing, saveMessages, getMessages } from '../storage';
 import { useWebSocket } from '../useWebSocket';
 import { Message, ConnectionStatus, RootStackParamList } from '../types';
+import { MessageContent } from '../components/MessageContent';
+import { TypingIndicator } from '../components/TypingIndicator';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
@@ -54,12 +56,7 @@ function MessageBubble({ message }: { message: Message }) {
         styles.bubble,
         isUser ? styles.bubbleUser : styles.bubbleWakeel,
       ]}>
-        <Text style={[
-          styles.bubbleText,
-          isUser ? styles.bubbleTextUser : styles.bubbleTextWakeel,
-        ]}>
-          {message.text}
-        </Text>
+        <MessageContent text={message.text} isUser={isUser} />
         <Text style={[
           styles.timeText,
           isUser ? styles.timeTextUser : styles.timeTextWakeel,
@@ -75,6 +72,7 @@ export function ChatScreen({ navigation }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
+  const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const { status, send, connect, onMessage } = useWebSocket();
 
@@ -100,6 +98,7 @@ export function ChatScreen({ navigation }: Props) {
   // Handle incoming messages
   useEffect(() => {
     onMessage((text: string) => {
+      setIsTyping(false);
       const newMsg: Message = {
         id: `wakeel-${Date.now()}-${Math.random()}`,
         text,
@@ -142,6 +141,7 @@ export function ChatScreen({ navigation }: Props) {
 
     send(text);
     setInputText('');
+    setIsTyping(true);
   }, [inputText, send]);
 
   return (
@@ -175,6 +175,7 @@ export function ChatScreen({ navigation }: Props) {
         onContentSizeChange={() =>
           flatListRef.current?.scrollToEnd({ animated: false })
         }
+        ListFooterComponent={isTyping ? <TypingIndicator /> : null}
         ListEmptyComponent={
           <View style={styles.emptyContainer}>
             <Text style={styles.emptyEmoji}>🦉</Text>
