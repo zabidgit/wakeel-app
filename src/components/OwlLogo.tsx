@@ -50,7 +50,7 @@ export function OwlLogo({ size = 160, showTitle = true, showTagline = true }: Ow
       )}
 
       {showTagline && (
-        <Text style={styles.tagline}>NEVER SLEEPS · NEVER FORGETS</Text>
+        <Text style={styles.tagline}>وکیل · YOUR PERSONAL AI AGENT</Text>
       )}
     </View>
   );
