@@ -18,10 +18,12 @@
       "backgroundColor": "#1A1A1A",
       "infoPlist": {
         "UIBackgroundModes": [
+          "remote-notification",
           "remote-notification"
-        ]
+        ],
+        "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "37"
+      "buildNumber": "38"
     },
     "android": {
       "adaptiveIcon": {
@@ -40,6 +42,12 @@
         "projectId": "621af8c4-fdbd-492d-bf22-2db15c196ebe"
       }
     },
-    "owner": "getwakeel"
+    "owner": "getwakeel",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/621af8c4-fdbd-492d-bf22-2db15c196ebe"
+    }
   }
 }

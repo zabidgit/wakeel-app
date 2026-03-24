@@ -95,21 +95,55 @@ export function ChatScreen({ navigation }: Props) {
     })();
   }, []);
 
-  // Handle incoming messages
+  // Track the current streaming message ID
+  const streamingMsgId = useRef<string | null>(null);
+
+  // Handle incoming messages (streaming deltas + finals)
   useEffect(() => {
-    onMessage((text: string) => {
-      setIsTyping(false);
-      const newMsg: Message = {
-        id: `wakeel-${Date.now()}-${Math.random()}`,
-        text,
-        sender: 'wakeel',
-        timestamp: Date.now(),
-      };
-      setMessages(prev => {
-        const updated = [...prev, newMsg];
-        saveMessages(updated);
-        return updated;
-      });
+    onMessage((text: string, isFinal: boolean) => {
+      if (isFinal) {
+        // Final message — replace any streaming message or add new
+        setIsTyping(false);
+        const finalMsg: Message = {
+          id: `wakeel-${Date.now()}-${Math.random()}`,
+          text,
+          sender: 'wakeel',
+          timestamp: Date.now(),
+        };
+        setMessages(prev => {
+          // Remove streaming placeholder if it exists
+          const filtered = streamingMsgId.current
+            ? prev.filter(m => m.id !== streamingMsgId.current)
+            : prev;
+          const updated = [...filtered, finalMsg];
+          saveMessages(updated);
+          return updated;
+        });
+        streamingMsgId.current = null;
+      } else {
+        // Streaming delta — update or create streaming message
+        setIsTyping(false);
+        if (!streamingMsgId.current) {
+          streamingMsgId.current = `wakeel-stream-${Date.now()}`;
+        }
+        const msgId = streamingMsgId.current;
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === msgId);
+          const streamMsg: Message = {
+            id: msgId,
+            text,
+            sender: 'wakeel',
+            timestamp: Date.now(),
+          };
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = streamMsg;
+            return updated;
+          } else {
+            return [...prev, streamMsg];
+          }
+        });
+      }
     });
   }, [onMessage]);
 

@@ -6,7 +6,12 @@ interface UseWebSocketReturn {
   send: (message: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
-  onMessage: (handler: (text: string) => void) => void;
+  onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
+}
+
+let reqIdCounter = 0;
+function nextReqId(): string {
+  return `wk-${Date.now()}-${++reqIdCounter}`;
 }
 
 export function useWebSocket(): UseWebSocketReturn {
@@ -14,8 +19,10 @@ export function useWebSocket(): UseWebSocketReturn {
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const reconnectAttemptRef = useRef(0);
   const pairingRef = useRef<PairingData | null>(null);
-  const messageHandlerRef = useRef<((text: string) => void) | null>(null);
+  const messageHandlerRef = useRef<((text: string, isFinal: boolean) => void) | null>(null);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
+  // Track accumulated streaming text per message
+  const streamTextRef = useRef<string>('');
 
   const cleanup = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -35,14 +42,14 @@ export function useWebSocket(): UseWebSocketReturn {
   const scheduleReconnect = useCallback(() => {
     if (!pairingRef.current) return;
     const attempt = reconnectAttemptRef.current;
-    const delay = Math.min(1000 * Math.pow(2, attempt), 30000); // Max 30s
+    const delay = Math.min(1000 * Math.pow(2, attempt), 30000);
     reconnectTimerRef.current = setTimeout(() => {
       reconnectAttemptRef.current = attempt + 1;
       connectInternal(pairingRef.current!);
     }, delay);
   }, []);
 
-  const connectInternal = useCallback((pairing: PairingData) => {
+  const connectInternal = useCallback(async (pairing: PairingData) => {
     cleanup();
     setStatus('connecting');
 
@@ -51,43 +58,99 @@ export function useWebSocket(): UseWebSocketReturn {
       wsRef.current = ws;
 
       ws.onopen = () => {
-        // Send auth token
+        // Send connect frame (OpenClaw gateway protocol v3)
         ws.send(JSON.stringify({
-          type: 'auth',
+          type: 'connect',
           token: pairing.token,
+          minProtocol: 3,
+          maxProtocol: 3,
+          role: 'operator',
+          scopes: ['operator.read', 'operator.write', 'operator.admin'],
+          mode: 'webchat',
+          client: {
+            id: 'openclaw-ios',
+            platform: 'ios',
+            version: '1.0.0',
+            deviceFamily: 'phone',
+          },
         }));
-        setStatus('connected');
-        reconnectAttemptRef.current = 0;
       };
 
       ws.onmessage = (event) => {
         try {
           const data = JSON.parse(event.data);
-          // Handle different message types from OpenClaw
-          if (data.type === 'message' || data.type === 'reply') {
-            const text = data.text || data.message || data.content || '';
-            if (text && messageHandlerRef.current) {
-              messageHandlerRef.current(text);
+
+          // Handle connect acknowledgment
+          if (data.type === 'connected') {
+            setStatus('connected');
+            reconnectAttemptRef.current = 0;
+            return;
+          }
+
+          // Handle error responses
+          if (data.type === 'error') {
+            console.warn('Server error:', data.message || data.error);
+            if (data.id) return; // Response to a request — ignore
+            return;
+          }
+
+          // Handle chat events (streaming)
+          if (data.type === 'event' && data.event === 'chat') {
+            const payload = data.payload;
+            if (!payload) return;
+
+            const state = payload.state; // 'delta' or 'final'
+            const msg = payload.message;
+            if (!msg) return;
+
+            // Extract text from message
+            let text = '';
+            if (msg.text) {
+              text = msg.text;
+            } else if (msg.content && Array.isArray(msg.content)) {
+              text = msg.content
+                .filter((c: any) => c.type === 'text')
+                .map((c: any) => c.text || '')
+                .join('');
             }
-          } else if (data.type === 'error') {
-            console.warn('WebSocket error from server:', data.message);
+
+            if (state === 'delta') {
+              // Accumulate streaming text
+              streamTextRef.current += text;
+              if (messageHandlerRef.current) {
+                messageHandlerRef.current(streamTextRef.current, false);
+              }
+            } else if (state === 'final') {
+              // Final message — use the full text from final payload
+              streamTextRef.current = '';
+              if (messageHandlerRef.current) {
+                messageHandlerRef.current(text, true);
+              }
+            }
+            return;
           }
+
+          // Handle response to requests (chat.send ack, health ack, etc.)
+          if (data.type === 'response') {
+            // Ignore acks
+            return;
+          }
+
         } catch {
-          // Plain text message
-          if (event.data && messageHandlerRef.current) {
-            messageHandlerRef.current(event.data);
-          }
+          // Ignore unparseable messages
         }
       };
 
       ws.onclose = () => {
         setStatus('disconnected');
-        scheduleReconnect();
+        streamTextRef.current = '';
+        if (pairingRef.current) {
+          scheduleReconnect();
+        }
       };
 
       ws.onerror = (error) => {
         console.warn('WebSocket error:', error);
-        setStatus('disconnected');
       };
     } catch (error) {
       console.warn('Failed to create WebSocket:', error);
@@ -112,14 +175,35 @@ export function useWebSocket(): UseWebSocketReturn {
   const send = useCallback((message: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
-        type: 'message',
-        text: message,
+        type: 'request',
+        id: nextReqId(),
+        method: 'chat.send',
+        params: {
+          sessionKey: 'main',
+          message,
+          idempotencyKey: `${Date.now()}-${Math.random().toString(36).substring(2, 8)}`,
+        },
       }));
     }
   }, []);
 
-  const onMessage = useCallback((handler: (text: string) => void) => {
+  const onMessage = useCallback((handler: (text: string, isFinal: boolean) => void) => {
     messageHandlerRef.current = handler;
+  }, []);
+
+  // Health keepalive
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(JSON.stringify({
+          type: 'request',
+          id: nextReqId(),
+          method: 'health',
+          params: {},
+        }));
+      }
+    }, 30000);
+    return () => clearInterval(interval);
   }, []);
 
   useEffect(() => {
