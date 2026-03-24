@@ -77,11 +77,11 @@ export function useWebSocket(): UseWebSocketReturn {
       ws.onopen = async () => {
         try {
           const connectParams: any = {
-            token: pairing.token,
             minProtocol: 3,
             maxProtocol: 3,
             role: 'operator',
             scopes: ['operator.read', 'operator.write', 'operator.admin'],
+            auth: { token: pairing.token },
             client: {
               id: 'openclaw-ios',
               mode: 'webchat',
@@ -120,9 +120,9 @@ export function useWebSocket(): UseWebSocketReturn {
             };
           }
 
-          // Send as a proper request frame (gateway requires type: 'request' + method + id)
+          // Send as a proper request frame (gateway requires type: 'req' + method + id)
           ws.send(JSON.stringify({
-            type: 'request',
+            type: 'req',
             id: nextReqId(),
             method: 'connect',
             params: connectParams,
@@ -131,15 +131,15 @@ export function useWebSocket(): UseWebSocketReturn {
           console.warn('Failed to build auth payload:', err);
           // Fallback: send simple connect without device
           ws.send(JSON.stringify({
-            type: 'request',
+            type: 'req',
             id: nextReqId(),
             method: 'connect',
             params: {
-              token: pairing.token,
               minProtocol: 3,
               maxProtocol: 3,
               role: 'operator',
               scopes: ['operator.read', 'operator.write', 'operator.admin'],
+              auth: { token: pairing.token },
               client: {
                 id: 'openclaw-ios',
                 mode: 'webchat',
@@ -278,7 +278,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const send = useCallback((message: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       wsRef.current.send(JSON.stringify({
-        type: 'request',
+        type: 'req',
         id: nextReqId(),
         method: 'chat.send',
         params: {
@@ -299,7 +299,7 @@ export function useWebSocket(): UseWebSocketReturn {
     const interval = setInterval(() => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(JSON.stringify({
-          type: 'request',
+          type: 'req',
           id: nextReqId(),
           method: 'health',
           params: {},
