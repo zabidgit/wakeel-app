@@ -60,21 +60,19 @@ export function useWebSocket(): UseWebSocketReturn {
     cleanup();
     setStatus('connecting');
 
-    try {
-      // Load or create device identity
-      if (!deviceRef.current) {
-        try {
-          deviceRef.current = await loadOrCreateDeviceIdentity();
-        } catch (err) {
-          console.warn('Failed to load device identity:', err);
-        }
-      }
-      const device = deviceRef.current;
+    // Pre-load device identity (non-blocking — connect works without it)
+    if (!deviceRef.current) {
+      loadOrCreateDeviceIdentity()
+        .then(d => { deviceRef.current = d; })
+        .catch(() => {}); // silently ignore — device auth is optional
+    }
 
+    try {
       const ws = new WebSocket(pairing.url);
       wsRef.current = ws;
 
-      ws.onopen = async () => {
+      ws.onopen = () => {
+        // SYNC onopen — no async, no await, guaranteed to execute
         try {
           const connectParams: any = {
             minProtocol: 3,
@@ -91,36 +89,39 @@ export function useWebSocket(): UseWebSocketReturn {
             },
           };
 
+          const device = deviceRef.current;
           if (device) {
-            // Build device auth payload
-            const nonce = Math.random().toString(36).substring(2, 15);
-            const signedAt = Date.now();
+            try {
+              const nonce = Math.random().toString(36).substring(2, 15);
+              const signedAt = Date.now();
 
-            const payloadString = buildDeviceAuthPayloadV3({
-              deviceId: device.deviceId,
-              clientId: 'openclaw-ios',
-              clientMode: 'webchat',
-              role: 'operator',
-              scopes: ['operator.read', 'operator.write', 'operator.admin'],
-              signedAtMs: signedAt,
-              token: pairing.token,
-              nonce,
-              platform: 'ios',
-              deviceFamily: 'phone',
-            });
+              const payloadString = buildDeviceAuthPayloadV3({
+                deviceId: device.deviceId,
+                clientId: 'openclaw-ios',
+                clientMode: 'webchat',
+                role: 'operator',
+                scopes: ['operator.read', 'operator.write', 'operator.admin'],
+                signedAtMs: signedAt,
+                token: pairing.token,
+                nonce,
+                platform: 'ios',
+                deviceFamily: 'phone',
+              });
 
-            const signature = signPayload(device, payloadString);
+              const signature = signPayload(device, payloadString);
 
-            connectParams.device = {
-              id: device.deviceId,
-              publicKey: device.publicKeyB64url,
-              signature,
-              signedAt,
-              nonce,
-            };
+              connectParams.device = {
+                id: device.deviceId,
+                publicKey: device.publicKeyB64url,
+                signature,
+                signedAt,
+                nonce,
+              };
+            } catch (e) {
+              // Device auth failed — connect without it
+            }
           }
 
-          // Send as a proper request frame (gateway requires type: 'req' + method + id)
           ws.send(JSON.stringify({
             type: 'req',
             id: nextReqId(),
@@ -128,27 +129,28 @@ export function useWebSocket(): UseWebSocketReturn {
             params: connectParams,
           }));
         } catch (err) {
-          console.warn('Failed to build auth payload:', err);
-          // Fallback: send simple connect without device
-          ws.send(JSON.stringify({
-            type: 'req',
-            id: nextReqId(),
-            method: 'connect',
-            params: {
-              minProtocol: 3,
-              maxProtocol: 3,
-              role: 'operator',
-              scopes: ['operator.read', 'operator.write', 'operator.admin'],
-              auth: { token: pairing.token },
-              client: {
-                id: 'openclaw-ios',
-                mode: 'webchat',
-                platform: 'ios',
-                version: '1.0.0',
-                deviceFamily: 'phone',
+          // Last resort fallback
+          try {
+            ws.send(JSON.stringify({
+              type: 'req',
+              id: nextReqId(),
+              method: 'connect',
+              params: {
+                minProtocol: 3,
+                maxProtocol: 3,
+                role: 'operator',
+                scopes: ['operator.read', 'operator.write', 'operator.admin'],
+                auth: { token: pairing.token },
+                client: {
+                  id: 'openclaw-ios',
+                  mode: 'webchat',
+                  platform: 'ios',
+                  version: '1.0.0',
+                  deviceFamily: 'phone',
+                },
               },
-            },
-          }));
+            }));
+          } catch {}
         }
       };
 
