@@ -24,12 +24,9 @@
   "submit": {
     "production": {
       "ios": {
-        "appleId": "",
-        "ascAppId": "",
-        "appleTeamId": ""
-      },
-      "android": {
-        "serviceAccountKeyPath": ""
+        "appleId": "zainabid1993@gmail.com",
+        "ascAppId": "6760684176",
+        "appleTeamId": "6H33LVY734"
       }
     }
   }
