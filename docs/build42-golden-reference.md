@@ -17,28 +17,27 @@
 - Native binary includes: expo-crypto, tweetnacl, expo-updates, expo-secure-store
 - OTA channel "production" configured
 
-## Connect Frame Format (WORKING)
+## Connect Frame Format (WORKING — via OTA)
+⚠️ Build 42's EMBEDDED code uses legacy `type: 'connect'` which the gateway REJECTS.
+The app only works with OTA override using `type: 'req'` format:
 ```json
 {
-  "type": "connect",
-  "token": "<gateway_token>",
-  "minProtocol": 3,
-  "maxProtocol": 3,
-  "role": "operator",
-  "scopes": ["operator.read", "operator.write", "operator.admin"],
-  "mode": "webchat",
-  "client": {
-    "id": "openclaw-ios",
-    "platform": "ios",
-    "version": "1.0.0",
-    "deviceFamily": "phone"
-  },
-  "device": {
-    "id": "<sha256_hex_of_pubkey>",
-    "publicKey": "<base64url_ed25519_pubkey>",
-    "signature": "<base64url_ed25519_signature>",
-    "signedAt": 1711234567890,
-    "nonce": "<random_string>"
+  "type": "req",
+  "id": "r1",
+  "method": "connect",
+  "params": {
+    "minProtocol": 3,
+    "maxProtocol": 3,
+    "role": "operator",
+    "scopes": ["operator.read", "operator.write", "operator.admin"],
+    "auth": { "token": "<gateway_token>" },
+    "client": {
+      "id": "openclaw-ios",
+      "mode": "webchat",
+      "platform": "ios",
+      "version": "1.0.0",
+      "deviceFamily": "phone"
+    }
   }
 }
 ```
@@ -46,8 +45,8 @@
 ## chat.send Format (WORKING)
 ```json
 {
-  "type": "request",
-  "id": "wk-<timestamp>-<counter>",
+  "type": "req",
+  "id": "r2",
   "method": "chat.send",
   "params": {
     "sessionKey": "main",
@@ -57,6 +56,8 @@
 }
 ```
 
-## Known Issue
-- Double messages: streaming delta creates one bubble, final creates another
-- Fix needed in ChatScreen.tsx message handling
+## Current OTA (commit 869c51d)
+- ✅ type:req connect format
+- ✅ Health keepalive every 25s
+- ✅ Single messages (delta=accumulated, final replaces in-place)
+- ❌ No device identity (token auth only — works fine with gateway sharedAuthOk)
