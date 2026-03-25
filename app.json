@@ -4,18 +4,18 @@
     "slug": "wakeel",
     "version": "1.0.0",
     "orientation": "portrait",
-    "icon": "./assets/icon.png",
+    "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
     "newArchEnabled": true,
     "splash": {
-      "image": "./assets/splash-icon.png",
+      "image": "./assets/splash-icon-new.png",
       "resizeMode": "contain",
-      "backgroundColor": "#1A1A1A"
+      "backgroundColor": "#050505"
     },
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.getwakeel.app",
-      "backgroundColor": "#1A1A1A",
+      "backgroundColor": "#050505",
       "infoPlist": {
         "UIBackgroundModes": [
           "remote-notification",
@@ -23,7 +23,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "47"
+      "buildNumber": "48"
     },
     "android": {
       "adaptiveIcon": {
