@@ -4,11 +4,14 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   StyleSheet,
   FlatList,
   KeyboardAvoidingView,
   Platform,
   Image,
+  Clipboard,
+  Alert,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -72,24 +75,31 @@ function MessageBubble({ message }: { message: Message }) {
   }
 
   // Wakeel message — no bubble background, avatar + label
+  const handleLongPress = () => {
+    Clipboard.setString(message.text);
+    Alert.alert('Copied', 'Message copied to clipboard');
+  };
+
   return (
-    <View style={styles.bubbleRowWakeel}>
-      {/* Avatar row */}
-      <View style={styles.wakeelAvatarRow}>
-        <View style={styles.wakeelAvatar}>
-          <Image source={owlLogo} style={styles.wakeelAvatarImg} />
+    <TouchableWithoutFeedback onLongPress={handleLongPress}>
+      <View style={styles.bubbleRowWakeel}>
+        {/* Avatar row */}
+        <View style={styles.wakeelAvatarRow}>
+          <View style={styles.wakeelAvatar}>
+            <Image source={owlLogo} style={styles.wakeelAvatarImg} />
+          </View>
+          <Text style={styles.wakeelLabel}>Wakeel Oracle</Text>
         </View>
-        <Text style={styles.wakeelLabel}>Wakeel Oracle</Text>
-      </View>
 
-      {/* Message text */}
-      <View style={styles.wakeelMessageBody}>
-        <MessageContent text={message.text} isUser={false} />
-        {isStreaming && <StreamingCursor />}
-      </View>
+        {/* Message text */}
+        <View style={styles.wakeelMessageBody}>
+          <MessageContent text={message.text} isUser={false} />
+          {isStreaming && <StreamingCursor />}
+        </View>
 
-      <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
-    </View>
+        <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
+      </View>
+    </TouchableWithoutFeedback>
   );
 }
 
