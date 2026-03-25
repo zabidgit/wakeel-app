@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Wakeel AI - Pairing</title>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:ital,wght@0,300;0,400;0,500;0,600;0,700;1,300&amp;family=Manrope:wght@200;300;400;500;600;700;800&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script id="tailwind-config">
+      tailwind.config = {
+        darkMode: "class",
+        theme: {
+          extend: {
+            colors: {
+              "tertiary": "#e7e9ff",
+              "primary-fixed-dim": "#eac249",
+              "surface-variant": "#353534",
+              "on-primary-fixed-variant": "#574400",
+              "on-error": "#690005",
+              "primary-fixed": "#ffe08a",
+              "on-tertiary-fixed-variant": "#003ab3",
+              "on-secondary-fixed-variant": "#5400cc",
+              "outline-variant": "#4d4635",
+              "on-error-container": "#ffdad6",
+              "surface-dim": "#131313",
+              "on-secondary-container": "#cfbcff",
+              "secondary-container": "#6200ea",
+              "primary-container": "#f2ca50",
+              "on-secondary": "#3a0092",
+              "error-container": "#93000a",
+              "error": "#ffb4ab",
+              "on-tertiary-fixed": "#001550",
+              "tertiary-fixed-dim": "#b6c4ff",
+              "on-primary": "#3d2f00",
+              "on-surface-variant": "#d0c5af",
+              "tertiary-fixed": "#dce1ff",
+              "on-primary-fixed": "#241a00",
+              "on-background": "#e5e2e1",
+              "surface-tint": "#eac249",
+              "on-surface": "#e5e2e1",
+              "secondary-fixed-dim": "#cfbcff",
+              "surface-container-low": "#1c1b1b",
+              "surface-container-highest": "#353534",
+              "inverse-surface": "#e5e2e1",
+              "surface-container-high": "#2a2a2a",
+              "surface-container-lowest": "#0e0e0e",
+              "on-tertiary-container": "#0048d9",
+              "secondary": "#cfbcff",
+              "surface-container": "#201f1f",
+              "surface": "#131313",
+              "primary": "#ffe9b0",
+              "on-secondary-fixed": "#22005d",
+              "outline": "#99907c",
+              "secondary-fixed": "#e9ddff",
+              "on-primary-container": "#6b5500",
+              "inverse-primary": "#745b00",
+              "surface-bright": "#3a3939",
+              "tertiary-container": "#c1ccff",
+              "on-tertiary": "#002780",
+              "background": "#131313",
+              "inverse-on-surface": "#313030"
+            },
+            fontFamily: {
+              "headline": ["Cormorant Garamond", "serif"],
+              "body": ["Manrope", "sans-serif"],
+              "label": ["Manrope", "sans-serif"]
+            },
+            borderRadius: {"DEFAULT": "1rem", "lg": "2rem", "xl": "3rem", "full": "9999px"},
+          },
+        },
+      }
+    </script>
+<style>
+        .material-symbols-outlined {
+            font-variation-settings: 'FILL' 0, 'wght' 300, 'GRAD' 0, 'opsz' 24;
+        }
+        .nebula-glow {
+            filter: blur(120px);
+            opacity: 0.15;
+            pointer-events: none;
+        }
+        body {
+            background-color: #050505;
+            color: #e5e2e1;
+            font-family: 'Manrope', sans-serif;
+            overflow: hidden;
+        }
+    </style>
+<style>
+    body {
+      min-height: max(884px, 100dvh);
+    }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col justify-center items-center relative selection:bg-primary-container selection:text-on-primary-container">
+<!-- Nebular Blurs -->
+<div class="absolute top-[-10%] left-[-10%] w-[60%] h-[60%] bg-[#3a0092] nebula-glow rounded-full"></div>
+<div class="absolute bottom-[-10%] right-[-10%] w-[50%] h-[50%] bg-[#f2ca50] nebula-glow rounded-full opacity-10"></div>
+<!-- Top Navigation (Shell suppressed for transactional/focused journey) -->
+<header class="fixed top-0 left-0 w-full z-50 flex justify-between items-center px-8 py-8">
+<div class="text-2xl font-serif tracking-widest uppercase text-yellow-200 drop-shadow-[0_0_15px_rgba(242,202,80,0.3)] font-headline">
+            Wakeel
+        </div>
+<button class="text-neutral-400 hover:text-yellow-100 transition-colors duration-500">
+<span class="material-symbols-outlined">help_outline</span>
+</button>
+</header>
+<!-- Main Content Canvas -->
+<main class="w-full max-w-md px-6 z-10 flex flex-col items-center text-center">
+<!-- Logo Section -->
+<div class="mb-16 relative">
+<div class="absolute inset-0 bg-primary-container/20 blur-3xl rounded-full scale-150"></div>
+<img alt="Wakeel AI Owl Logo" class="w-40 h-40 object-contain relative z-10 drop-shadow-[0_0_20px_rgba(242,202,80,0.5)]" data-alt="a minimalist gold-line owl logo on a pure black background with the Arabic word 'وكيل' below it, elegant symmetrical design, luxury aesthetic, sharp vector style" src="https://lh3.googleusercontent.com/aida-public/AB6AXuB9oxLVPEt_uYYAjCvV5pVC0RqG-9lLa77-9xL87CBa78xV3nNoMtpTE-LH3xJD4BdzA7LUG1pvVSZngb_XHGcdKLg7nqmNn87sfk54tzDE6ijkjgCCc72Acv8GDRVUZ5UUer-Zfxisp2pQ1wQKkf1sp5VGcBGcxiYNLmAxgqsBwAp24b6O9TTHfKm8zuj2ZFANoTfEk0QN9NFu26SKir5BoqH5hUs3ErxHayh147bb2XlupmoZ5D8ndyJc5rzy8WeIxvA2YDfm5vg"/>
+</div>
+<!-- Typography Branding -->
+<div class="mb-12">
+<h1 class="font-headline text-5xl md:text-6xl text-primary leading-tight tracking-tight mb-2">Pair Device</h1>
+<p class="font-body text-on-surface-variant/70 text-sm tracking-widest uppercase">Connect to your personal AI agent.</p>
+</div>
+<!-- Action Card -->
+<div class="w-full space-y-8">
+<div class="space-y-4">
+<div class="relative group">
+<label class="block text-left ml-6 mb-2 font-label text-[10px] uppercase tracking-[0.2em] text-neutral-500" for="code">
+                        Celestial Code
+                    </label>
+<input class="w-full bg-surface-container-highest/40 border-none rounded-xl px-6 py-5 text-on-surface placeholder:text-neutral-600 focus:ring-0 transition-all duration-500 text-center tracking-[0.3em] font-medium text-lg focus:bg-surface-container-highest/60" id="code" placeholder="Enter your code" type="text"/>
+<div class="absolute top-0 right-4 h-full flex items-center pointer-events-none">
+<div class="w-1.5 h-1.5 bg-primary rounded-full opacity-0 group-focus-within:opacity-100 transition-opacity blur-[1px]"></div>
+</div>
+</div>
+<button class="w-full bg-primary-container text-on-primary-container font-body font-bold text-sm tracking-widest uppercase py-5 rounded-full hover:bg-primary transition-all duration-500 shadow-[0_0_30px_rgba(242,202,80,0.2)] active:scale-[0.98]">
+                    Connect
+                </button>
+</div>
+<!-- Divider Alternative (Vertical Space & Typo) -->
+<div class="py-4">
+<span class="font-label text-[10px] uppercase tracking-[0.3em] text-neutral-600">or</span>
+</div>
+<button class="flex items-center justify-center gap-3 w-full bg-surface-bright/5 backdrop-blur-xl border border-white/5 py-4 rounded-full text-on-surface-variant hover:text-primary hover:bg-surface-bright/10 transition-all duration-500 group">
+<span class="material-symbols-outlined text-xl group-hover:scale-110 transition-transform">qr_code_scanner</span>
+<span class="font-label text-xs uppercase tracking-widest">Scan QR</span>
+</button>
+</div>
+</main>
+<!-- Footer Identity -->
+<footer class="fixed bottom-12 left-0 w-full text-center">
+<p class="font-label text-[10px] uppercase tracking-[0.4em] text-neutral-700">
+            End-to-End Astral Encryption
+        </p>
+</footer>
+<!-- Success Feedback Glow (Hidden by Default) -->
+<div class="fixed inset-0 pointer-events-none opacity-0 transition-opacity duration-1000 bg-primary-container/5 z-0"></div>
+</body></html>

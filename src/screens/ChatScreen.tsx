@@ -9,6 +9,7 @@ import {
   KeyboardAvoidingView,
   Platform,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
 import { getPairing, saveMessages, getMessages } from '../storage';
@@ -16,57 +17,80 @@ import { useWebSocket } from '../useWebSocket';
 import { Message, ConnectionStatus, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
+import { StreamingCursor } from '../components/StreamingCursor';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
 };
 
+// ─── Status Dot ───────────────────────────────────────────────────────────────
+
 function StatusDot({ status }: { status: ConnectionStatus }) {
   const dotColor =
     status === 'connected' ? colors.success :
-    status === 'connecting' ? colors.warning :
+    status === 'connecting' ? colors.primaryGold :
     colors.error;
+
+  const label =
+    status === 'connected' ? 'Connected' :
+    status === 'connecting' ? 'Connecting...' :
+    'Disconnected';
 
   return (
     <View style={styles.statusRow}>
       <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
-      <Text style={styles.statusText}>
-        {status === 'connected' ? 'Connected' :
-         status === 'connecting' ? 'Connecting...' :
-         'Disconnected'}
-      </Text>
+      <Text style={styles.statusText}>{label}</Text>
     </View>
   );
 }
+
+// ─── Time helper ──────────────────────────────────────────────────────────────
 
 function formatTime(timestamp: number): string {
   const date = new Date(timestamp);
   return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
 
+// ─── Message Bubble ───────────────────────────────────────────────────────────
+
 function MessageBubble({ message }: { message: Message }) {
   const isUser = message.sender === 'user';
+  const isStreaming = message.id.startsWith('wakeel-stream-');
 
-  return (
-    <View style={[
-      styles.bubbleRow,
-      isUser ? styles.bubbleRowUser : styles.bubbleRowWakeel,
-    ]}>
-      <View style={[
-        styles.bubble,
-        isUser ? styles.bubbleUser : styles.bubbleWakeel,
-      ]}>
-        <MessageContent text={message.text} isUser={isUser} />
-        <Text style={[
-          styles.timeText,
-          isUser ? styles.timeTextUser : styles.timeTextWakeel,
-        ]}>
-          {formatTime(message.timestamp)}
-        </Text>
+  if (isUser) {
+    return (
+      <View style={styles.bubbleRowUser}>
+        <View style={styles.bubbleUser}>
+          <MessageContent text={message.text} isUser />
+          <Text style={styles.timeTextUser}>{formatTime(message.timestamp)}</Text>
+        </View>
       </View>
+    );
+  }
+
+  // Wakeel message — no bubble background, avatar + label
+  return (
+    <View style={styles.bubbleRowWakeel}>
+      {/* Avatar row */}
+      <View style={styles.wakeelAvatarRow}>
+        <View style={styles.wakeelAvatar}>
+          <Text style={styles.wakeelAvatarIcon}>✦</Text>
+        </View>
+        <Text style={styles.wakeelLabel}>Wakeel Oracle</Text>
+      </View>
+
+      {/* Message text */}
+      <View style={styles.wakeelMessageBody}>
+        <MessageContent text={message.text} isUser={false} />
+        {isStreaming && <StreamingCursor />}
+      </View>
+
+      <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
     </View>
   );
 }
+
+// ─── Chat Screen ──────────────────────────────────────────────────────────────
 
 export function ChatScreen({ navigation }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
@@ -75,6 +99,7 @@ export function ChatScreen({ navigation }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const flatListRef = useRef<FlatList>(null);
   const { status, send, connect, onMessage } = useWebSocket();
+  const insets = useSafeAreaInsets();
 
   // Load pairing and messages on mount
   useEffect(() => {
@@ -186,235 +211,343 @@ export function ChatScreen({ navigation }: Props) {
   }, [inputText, send]);
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      keyboardVerticalOffset={0}
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>{wakeelName}</Text>
-          <StatusDot status={status} />
-        </View>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('Settings')}
-          style={styles.settingsButton}
-        >
-          <Text style={styles.settingsIcon}>⚙</Text>
-        </TouchableOpacity>
-      </View>
+    <View style={styles.container}>
+      {/* Subtle nebula backgrounds */}
+      <View style={styles.nebulaTop} />
+      <View style={styles.nebulaBottom} />
 
-      {/* Messages */}
-      <FlatList
-        ref={flatListRef}
-        data={messages}
-        keyExtractor={(item) => item.id}
-        renderItem={({ item }) => <MessageBubble message={item} />}
-        contentContainerStyle={styles.messageList}
-        style={styles.messageListContainer}
-        onContentSizeChange={() =>
-          flatListRef.current?.scrollToEnd({ animated: false })
-        }
-        ListFooterComponent={isTyping ? <TypingIndicator /> : null}
-        ListEmptyComponent={
-          <View style={styles.emptyContainer}>
-            <Text style={styles.emptyEmoji}>🦉</Text>
-            <Text style={styles.emptyText}>
-              Say hello to your Wakeel
-            </Text>
-            <Text style={styles.emptySubtext}>
-              I'm here to help — ask me anything
-            </Text>
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={0}
+      >
+        {/* Header */}
+        <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+          {/* Logo + name + status */}
+          <View style={styles.headerLeft}>
+            <View style={styles.logoMini}>
+              <Text style={styles.logoMiniText}>✦</Text>
+            </View>
+            <View style={styles.headerTitleGroup}>
+              <Text style={styles.headerTitle}>{wakeelName}</Text>
+              <StatusDot status={status} />
+            </View>
           </View>
-        }
-      />
 
-      {/* Input Bar */}
-      <View style={styles.inputBar}>
-        <TextInput
-          style={styles.input}
-          value={inputText}
-          onChangeText={setInputText}
-          placeholder="Message..."
-          placeholderTextColor={colors.textMuted}
-          multiline
-          maxLength={4000}
-          returnKeyType="default"
+          {/* Settings button */}
+          <TouchableOpacity
+            onPress={() => navigation.navigate('Settings')}
+            style={styles.settingsButton}
+            activeOpacity={0.7}
+          >
+            <Text style={styles.settingsIcon}>⚙</Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Messages */}
+        <FlatList
+          ref={flatListRef}
+          data={messages}
+          keyExtractor={(item) => item.id}
+          renderItem={({ item }) => <MessageBubble message={item} />}
+          contentContainerStyle={styles.messageList}
+          style={styles.messageListContainer}
+          onContentSizeChange={() =>
+            flatListRef.current?.scrollToEnd({ animated: false })
+          }
+          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
+          ListEmptyComponent={
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyIcon}>✦</Text>
+              <Text style={styles.emptyText}>Say hello to your Wakeel</Text>
+              <Text style={styles.emptySubtext}>I'm here to help — ask me anything</Text>
+            </View>
+          }
         />
-        <TouchableOpacity
-          style={[
-            styles.sendButton,
-            !inputText.trim() && styles.sendButtonDisabled,
-          ]}
-          onPress={handleSend}
-          disabled={!inputText.trim()}
-          activeOpacity={0.7}
-        >
-          <Text style={styles.sendIcon}>↑</Text>
-        </TouchableOpacity>
-      </View>
-    </KeyboardAvoidingView>
+
+        {/* Input Bar */}
+        <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
+          {/* Subtle gold border glow on the input container */}
+          <View style={styles.inputContainer}>
+            <TextInput
+              style={styles.input}
+              value={inputText}
+              onChangeText={setInputText}
+              placeholder="Message Wakeel..."
+              placeholderTextColor={colors.outline}
+              multiline
+              maxLength={4000}
+              returnKeyType="default"
+            />
+            <TouchableOpacity
+              style={[
+                styles.sendButton,
+                !inputText.trim() && styles.sendButtonDisabled,
+              ]}
+              onPress={handleSend}
+              disabled={!inputText.trim()}
+              activeOpacity={0.75}
+            >
+              <Text style={styles.sendIcon}>↑</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: colors.background,
   },
+  flex: {
+    flex: 1,
+  },
+
+  // Nebula glows
+  nebulaTop: {
+    position: 'absolute',
+    top: -60,
+    left: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: colors.primaryGold,
+    opacity: 0.04,
+  },
+  nebulaBottom: {
+    position: 'absolute',
+    bottom: -60,
+    right: -40,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: colors.secondaryContainer,
+    opacity: 0.08,
+  },
+
+  // Header
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: spacing.md,
-    paddingTop: Platform.OS === 'ios' ? 60 : 40,
-    paddingBottom: spacing.sm,
-    backgroundColor: colors.darkGray,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.mediumGray,
+    paddingBottom: spacing.md,
+    backgroundColor: 'rgba(5,5,5,0.85)',
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.outlineVariant,
   },
   headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoMini: {
+    width: 40,
+    height: 40,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+  },
+  logoMiniText: {
+    fontSize: 18,
+    color: colors.primaryTextGold,
+  },
+  headerTitleGroup: {
     gap: 2,
   },
   headerTitle: {
-    color: colors.gold,
-    fontSize: 20,
-    fontWeight: '600',
-    letterSpacing: 1,
+    fontSize: 22,
+    fontWeight: '300',
+    fontStyle: 'italic',
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+    color: colors.primaryTextGold,
   },
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    gap: 5,
   },
   statusDot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
   },
   statusText: {
-    color: colors.textMuted,
-    fontSize: 11,
+    color: colors.outline,
+    fontSize: 10,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
   },
   settingsButton: {
     padding: spacing.sm,
   },
   settingsIcon: {
-    fontSize: 22,
-    color: colors.textMuted,
+    fontSize: 20,
+    color: colors.outline,
   },
+
+  // Message list
   messageListContainer: {
     flex: 1,
   },
   messageList: {
     paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
+    paddingVertical: spacing.lg,
     flexGrow: 1,
-    justifyContent: 'flex-end',
   },
-  bubbleRow: {
-    marginVertical: 3,
-    flexDirection: 'row',
-  },
+
+  // User bubble
   bubbleRowUser: {
+    flexDirection: 'row',
     justifyContent: 'flex-end',
-  },
-  bubbleRowWakeel: {
-    justifyContent: 'flex-start',
-  },
-  bubble: {
-    maxWidth: '80%',
-    borderRadius: 18,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
+    marginBottom: spacing.lg,
+    paddingLeft: 60,
   },
   bubbleUser: {
-    backgroundColor: colors.gold,
-    borderBottomRightRadius: 4,
-  },
-  bubbleWakeel: {
-    backgroundColor: colors.darkGray,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: colors.mediumGray,
-  },
-  bubbleText: {
-    fontSize: 15,
-    lineHeight: 21,
-  },
-  bubbleTextUser: {
-    color: colors.black,
-  },
-  bubbleTextWakeel: {
-    color: colors.cream,
-  },
-  timeText: {
-    fontSize: 10,
-    marginTop: 4,
-    alignSelf: 'flex-end',
+    backgroundColor: colors.surfaceContainerHighest,
+    borderRadius: 16,
+    borderTopRightRadius: 4,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.sm + 2,
+    maxWidth: '85%',
   },
   timeTextUser: {
-    color: 'rgba(26, 26, 26, 0.5)',
+    fontSize: 10,
+    color: colors.outline,
+    marginTop: 4,
+    alignSelf: 'flex-end',
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+  },
+
+  // Wakeel message (no background)
+  bubbleRowWakeel: {
+    marginBottom: spacing.xl,
+    paddingRight: 60,
+  },
+  wakeelAvatarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 10,
+  },
+  wakeelAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  wakeelAvatarIcon: {
+    fontSize: 14,
+    color: colors.primaryTextGold,
+  },
+  wakeelLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    color: colors.primaryTextGold,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+  },
+  wakeelMessageBody: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'flex-end',
+    paddingLeft: 2,
   },
   timeTextWakeel: {
-    color: colors.textMuted,
+    fontSize: 10,
+    color: colors.outline,
+    marginTop: 6,
+    letterSpacing: 1,
+    textTransform: 'uppercase',
+    paddingLeft: 2,
   },
+
+  // Empty state
   emptyContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingBottom: 40,
+    paddingVertical: 80,
   },
-  emptyEmoji: {
-    fontSize: 48,
+  emptyIcon: {
+    fontSize: 36,
+    color: colors.primaryGold,
     marginBottom: spacing.md,
+    opacity: 0.5,
   },
   emptyText: {
-    color: colors.cream,
+    color: colors.onSurface,
     fontSize: 18,
-    fontWeight: '500',
+    fontWeight: '300',
+    fontStyle: 'italic',
     marginBottom: 6,
   },
   emptySubtext: {
-    color: colors.textMuted,
-    fontSize: 14,
+    color: colors.outline,
+    fontSize: 12,
+    letterSpacing: 1,
   },
+
+  // Input bar
   inputBar: {
+    paddingHorizontal: spacing.md,
+    paddingTop: spacing.sm,
+    backgroundColor: 'rgba(5,5,5,0.92)',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.outlineVariant,
+  },
+  inputContainer: {
     flexDirection: 'row',
     alignItems: 'flex-end',
+    backgroundColor: colors.surfaceContainerLowest,
+    borderRadius: 16,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
     paddingHorizontal: spacing.sm,
-    paddingVertical: spacing.sm,
-    paddingBottom: Platform.OS === 'ios' ? 34 : spacing.sm,
-    backgroundColor: colors.darkGray,
-    borderTopWidth: 1,
-    borderTopColor: colors.mediumGray,
-    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+    gap: spacing.xs,
   },
   input: {
     flex: 1,
-    backgroundColor: colors.mediumGray,
-    borderRadius: 20,
-    paddingHorizontal: 16,
-    paddingVertical: 10,
-    color: colors.cream,
+    color: colors.onSurface,
     fontSize: 15,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
     maxHeight: 100,
   },
   sendButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: colors.gold,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.primaryGold,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 2,
+    shadowColor: colors.primaryGold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 5,
   },
   sendButtonDisabled: {
-    backgroundColor: colors.mediumGray,
+    backgroundColor: colors.surfaceContainerHighest,
+    shadowOpacity: 0,
+    elevation: 0,
   },
   sendIcon: {
-    color: colors.black,
+    color: colors.surfaceContainerLowest,
     fontSize: 18,
     fontWeight: '700',
   },

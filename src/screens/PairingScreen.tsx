@@ -7,9 +7,10 @@ import {
   StyleSheet,
   KeyboardAvoidingView,
   Platform,
-  Alert,
   ActivityIndicator,
+  ScrollView,
 } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { OwlLogo } from '../components/OwlLogo';
 import { colors, spacing } from '../theme';
@@ -59,131 +60,286 @@ export function PairingScreen({ navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      style={styles.container}
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-    >
-      <View style={styles.content}>
-        <View style={styles.logoSection}>
-          <OwlLogo size={140} />
-        </View>
+    <View style={styles.root}>
+      {/* Nebula glow — purple top-left */}
+      <View style={styles.nebulaTopLeft} />
+      {/* Nebula glow — gold bottom-right */}
+      <View style={styles.nebulaBottomRight} />
 
-        <View style={styles.inputSection}>
-          <Text style={styles.label}>Enter your pairing code</Text>
-          <TextInput
-            style={styles.input}
-            value={code}
-            onChangeText={(text) => {
-              setCode(text);
-              setError('');
-            }}
-            placeholder="Paste your code here"
-            placeholderTextColor={colors.textMuted}
-            autoCapitalize="none"
-            autoCorrect={false}
-            multiline
-            numberOfLines={3}
-            textAlignVertical="top"
-          />
+      {/* Safe area + keyboard avoidance */}
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <SafeAreaView style={styles.safeArea}>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={styles.headerBrand}>Wakeel</Text>
+          </View>
 
-          {error ? <Text style={styles.error}>{error}</Text> : null}
-
-          <TouchableOpacity
-            style={[styles.button, loading && styles.buttonDisabled]}
-            onPress={handleConnect}
-            disabled={loading}
-            activeOpacity={0.8}
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
           >
-            {loading ? (
-              <ActivityIndicator color={colors.black} />
-            ) : (
-              <Text style={styles.buttonText}>Connect</Text>
-            )}
-          </TouchableOpacity>
-        </View>
+            {/* Logo */}
+            <View style={styles.logoSection}>
+              <OwlLogo size={140} showTitle={false} showTagline={false} showGlow />
+            </View>
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            Don't have a code?
-          </Text>
-          <Text style={styles.footerLink}>
-            Visit getwakeel.com
-          </Text>
-        </View>
-      </View>
-    </KeyboardAvoidingView>
+            {/* Headlines */}
+            <View style={styles.headlines}>
+              <Text style={styles.headline}>Pair Device</Text>
+              <Text style={styles.subtitle}>Connect to your personal AI agent.</Text>
+            </View>
+
+            {/* Form card */}
+            <View style={styles.card}>
+              {/* Input label */}
+              <Text style={styles.inputLabel}>Pairing Code</Text>
+
+              {/* Code input */}
+              <View style={[styles.inputWrapper, error ? styles.inputWrapperError : null]}>
+                <TextInput
+                  style={styles.input}
+                  value={code}
+                  onChangeText={(text) => {
+                    setCode(text);
+                    setError('');
+                  }}
+                  placeholder="Enter your code"
+                  placeholderTextColor={colors.outline}
+                  autoCapitalize="none"
+                  autoCorrect={false}
+                  multiline
+                  numberOfLines={3}
+                  textAlignVertical="top"
+                />
+              </View>
+
+              {/* Error */}
+              {error ? <Text style={styles.errorText}>{error}</Text> : null}
+
+              {/* Connect button */}
+              <TouchableOpacity
+                style={[styles.connectButton, loading && styles.connectButtonDisabled]}
+                onPress={handleConnect}
+                disabled={loading}
+                activeOpacity={0.85}
+              >
+                {loading ? (
+                  <ActivityIndicator color={colors.surfaceContainerLowest} size="small" />
+                ) : (
+                  <Text style={styles.connectButtonText}>Connect</Text>
+                )}
+              </TouchableOpacity>
+
+              {/* Divider */}
+              <View style={styles.divider}>
+                <Text style={styles.dividerText}>or</Text>
+              </View>
+
+              {/* Scan QR button */}
+              <TouchableOpacity style={styles.qrButton} activeOpacity={0.75}>
+                <Text style={styles.qrButtonText}>⬛  Scan QR Code</Text>
+              </TouchableOpacity>
+            </View>
+          </ScrollView>
+
+          {/* Footer */}
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>End-to-End Encrypted</Text>
+          </View>
+        </SafeAreaView>
+      </KeyboardAvoidingView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: colors.black,
+    backgroundColor: colors.background,
   },
-  content: {
+  flex: {
     flex: 1,
-    justifyContent: 'center',
-    paddingHorizontal: spacing.xl,
   },
+  safeArea: {
+    flex: 1,
+  },
+
+  // Nebula glow circles
+  nebulaTopLeft: {
+    position: 'absolute',
+    top: -80,
+    left: -80,
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: colors.secondaryContainer,
+    opacity: 0.12,
+  },
+  nebulaBottomRight: {
+    position: 'absolute',
+    bottom: -80,
+    right: -80,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: colors.primaryGold,
+    opacity: 0.07,
+  },
+
+  // Header
+  header: {
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.md,
+    paddingBottom: spacing.sm,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerBrand: {
+    fontSize: 22,
+    fontWeight: '300',
+    fontStyle: 'italic',
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+    color: colors.primaryTextGold,
+  },
+
+  // Scroll
+  scrollContent: {
+    flexGrow: 1,
+    alignItems: 'center',
+    paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.xl,
+  },
+
+  // Logo
   logoSection: {
+    marginTop: spacing.xxl,
+    marginBottom: spacing.xxl,
+    alignItems: 'center',
+  },
+
+  // Headlines
+  headlines: {
     alignItems: 'center',
     marginBottom: spacing.xxl,
   },
-  inputSection: {
+  headline: {
+    fontSize: 40,
+    fontWeight: '300',
+    fontStyle: 'italic',
+    color: colors.primaryTextGold,
+    letterSpacing: -0.5,
+    textAlign: 'center',
+    marginBottom: spacing.sm,
+  },
+  subtitle: {
+    fontSize: 11,
+    fontWeight: '400',
+    color: colors.outline,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+    textAlign: 'center',
+  },
+
+  // Form card
+  card: {
+    width: '100%',
     gap: spacing.md,
   },
-  label: {
-    color: colors.cream,
-    fontSize: 14,
-    letterSpacing: 1,
+  inputLabel: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: colors.outline,
+    letterSpacing: 3,
     textTransform: 'uppercase',
-    opacity: 0.7,
+    marginLeft: spacing.md,
+  },
+  inputWrapper: {
+    backgroundColor: colors.surfaceContainerHighest,
+    borderRadius: 16,
+    overflow: 'hidden',
+    opacity: 0.85,
+  },
+  inputWrapperError: {
+    borderWidth: 1,
+    borderColor: colors.error,
   },
   input: {
-    backgroundColor: colors.darkGray,
-    borderRadius: 12,
-    padding: spacing.md,
-    color: colors.cream,
-    fontSize: 14,
-    fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
-    borderWidth: 1,
-    borderColor: colors.mediumGray,
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.md,
+    color: colors.onSurface,
+    fontSize: 15,
+    letterSpacing: 2,
+    textAlign: 'center',
     minHeight: 80,
   },
-  error: {
+  errorText: {
     color: colors.error,
-    fontSize: 13,
-    marginTop: -spacing.sm,
+    fontSize: 12,
+    marginLeft: spacing.md,
   },
-  button: {
-    backgroundColor: colors.gold,
-    borderRadius: 12,
-    paddingVertical: 16,
+  connectButton: {
+    backgroundColor: colors.primaryGold,
+    borderRadius: 999,
+    paddingVertical: 18,
     alignItems: 'center',
+    // Subtle glow shadow
+    shadowColor: colors.primaryGold,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 8,
     marginTop: spacing.sm,
   },
-  buttonDisabled: {
-    opacity: 0.6,
+  connectButtonDisabled: {
+    opacity: 0.5,
   },
-  buttonText: {
-    color: colors.black,
-    fontSize: 16,
+  connectButtonText: {
+    color: colors.surfaceContainerLowest,
+    fontSize: 12,
     fontWeight: '700',
-    letterSpacing: 2,
+    letterSpacing: 4,
     textTransform: 'uppercase',
   },
+  divider: {
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+  },
+  dividerText: {
+    fontSize: 10,
+    color: colors.outlineVariant,
+    letterSpacing: 4,
+    textTransform: 'uppercase',
+  },
+  qrButton: {
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: colors.outline,
+    paddingVertical: 16,
+    alignItems: 'center',
+    opacity: 0.7,
+  },
+  qrButtonText: {
+    color: colors.onSurfaceVariant,
+    fontSize: 11,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
+  },
+
+  // Footer
   footer: {
     alignItems: 'center',
-    marginTop: spacing.xxl,
-    gap: 4,
+    paddingBottom: spacing.xl,
   },
   footerText: {
-    color: colors.textMuted,
-    fontSize: 13,
-  },
-  footerLink: {
-    color: colors.gold,
-    fontSize: 13,
-    opacity: 0.8,
+    fontSize: 10,
+    color: colors.outlineVariant,
+    letterSpacing: 4,
+    textTransform: 'uppercase',
   },
 });

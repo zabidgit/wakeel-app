@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, StyleSheet } from 'react-native';
+import { View, Text, Animated, StyleSheet } from 'react-native';
 import { colors } from '../theme';
 
 export function TypingIndicator() {
@@ -12,9 +12,9 @@ export function TypingIndicator() {
       return Animated.loop(
         Animated.sequence([
           Animated.delay(delay),
-          Animated.timing(dot, { toValue: 1, duration: 300, useNativeDriver: true }),
-          Animated.timing(dot, { toValue: 0, duration: 300, useNativeDriver: true }),
-          Animated.delay(600 - delay),
+          Animated.timing(dot, { toValue: 1, duration: 400, useNativeDriver: true }),
+          Animated.timing(dot, { toValue: 0, duration: 400, useNativeDriver: true }),
+          Animated.delay(750 - delay),
         ]),
       );
     };
@@ -35,17 +35,20 @@ export function TypingIndicator() {
   }, []);
 
   const dotStyle = (anim: Animated.Value) => ({
-    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.3, 1] }),
-    transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.8, 1.2] }) }],
+    opacity: anim.interpolate({ inputRange: [0, 1], outputRange: [0.25, 1] }),
+    transform: [
+      { scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.7, 1.15] }) },
+    ],
   });
 
   return (
     <View style={styles.container}>
-      <View style={styles.bubble}>
+      <View style={styles.dots}>
         <Animated.View style={[styles.dot, dotStyle(dot1)]} />
         <Animated.View style={[styles.dot, dotStyle(dot2)]} />
         <Animated.View style={[styles.dot, dotStyle(dot3)]} />
       </View>
+      <Text style={styles.label}>Wakeel is thinking...</Text>
     </View>
   );
 }
@@ -53,24 +56,27 @@ export function TypingIndicator() {
 const styles = StyleSheet.create({
   container: {
     flexDirection: 'row',
-    justifyContent: 'flex-start',
-    marginVertical: 3,
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    gap: 12,
   },
-  bubble: {
+  dots: {
     flexDirection: 'row',
-    backgroundColor: colors.darkGray,
-    borderRadius: 18,
-    borderBottomLeftRadius: 4,
-    borderWidth: 1,
-    borderColor: colors.mediumGray,
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    gap: 6,
+    gap: 5,
+    alignItems: 'center',
   },
   dot: {
-    width: 8,
-    height: 8,
-    borderRadius: 4,
-    backgroundColor: colors.gold,
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.primaryGold,
+  },
+  label: {
+    fontSize: 10,
+    color: colors.outline,
+    letterSpacing: 2,
+    textTransform: 'uppercase',
+    fontStyle: 'italic',
   },
 });

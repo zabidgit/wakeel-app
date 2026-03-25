@@ -24,14 +24,14 @@ export default function App() {
 
   return (
     <>
-      <StatusBar barStyle="light-content" backgroundColor="#1A1A1A" />
+      <StatusBar barStyle="light-content" backgroundColor="#050505" />
       <NavigationContainer>
         <Stack.Navigator
           initialRouteName={initialRoute}
           screenOptions={{
             headerShown: false,
             animation: 'fade',
-            contentStyle: { backgroundColor: '#1A1A1A' },
+            contentStyle: { backgroundColor: '#050505' },
           }}
         >
           <Stack.Screen name="Pairing" component={PairingScreen} />
