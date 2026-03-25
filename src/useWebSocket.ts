@@ -211,8 +211,8 @@ export function useWebSocket(): UseWebSocketReturn {
             }
 
             if (state === 'delta') {
-              // Accumulate streaming text
-              streamTextRef.current += text;
+              // Gateway sends full accumulated text in each delta, not just new chunks
+              streamTextRef.current = text;
               if (messageHandlerRef.current) {
                 messageHandlerRef.current(streamTextRef.current, false);
               }

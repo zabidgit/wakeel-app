@@ -102,24 +102,33 @@ export function ChatScreen({ navigation }: Props) {
   useEffect(() => {
     onMessage((text: string, isFinal: boolean) => {
       if (isFinal) {
-        // Final message — replace any streaming message or add new
+        // Final message — replace the streaming message
         setIsTyping(false);
+        // Capture ref BEFORE setMessages — React 18 batching may defer the updater
+        const streamId = streamingMsgId.current;
+        streamingMsgId.current = null;
         const finalMsg: Message = {
-          id: `wakeel-${Date.now()}-${Math.random()}`,
+          id: streamId || `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
           timestamp: Date.now(),
         };
         setMessages(prev => {
-          // Remove streaming placeholder if it exists
-          const filtered = streamingMsgId.current
-            ? prev.filter(m => m.id !== streamingMsgId.current)
-            : prev;
-          const updated = [...filtered, finalMsg];
+          // Replace streaming placeholder in-place if it exists
+          if (streamId) {
+            const idx = prev.findIndex(m => m.id === streamId);
+            if (idx >= 0) {
+              const updated = [...prev];
+              updated[idx] = finalMsg;
+              saveMessages(updated);
+              return updated;
+            }
+          }
+          // No streaming message found — just append
+          const updated = [...prev, finalMsg];
           saveMessages(updated);
           return updated;
         });
-        streamingMsgId.current = null;
       } else {
         // Streaming delta — update or create streaming message
         setIsTyping(false);
