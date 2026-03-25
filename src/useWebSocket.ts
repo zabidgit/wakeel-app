@@ -1,9 +1,16 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import { ConnectionStatus, PairingData } from './types';
 
+export interface Attachment {
+  data: string;      // base64
+  mimeType: string;
+  fileName: string;
+}
+
 interface UseWebSocketReturn {
   status: ConnectionStatus;
-  send: (message: string) => void;
+  send: (message: string, attachments?: Attachment[]) => void;
+  sendPushToken: (token: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
   onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
@@ -132,17 +139,32 @@ export function useWebSocket(): UseWebSocketReturn {
     setStatus('disconnected');
   }, [cleanup]);
 
-  const send = useCallback((message: string) => {
+  const send = useCallback((message: string, attachments?: Attachment[]) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const params: Record<string, unknown> = {
+        sessionKey: 'main',
+        message,
+        idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      };
+      if (attachments && attachments.length > 0) {
+        params.attachments = attachments;
+      }
       wsRef.current.send(JSON.stringify({
         type: 'req',
         id: nextId(),
         method: 'chat.send',
-        params: {
-          sessionKey: 'main',
-          message,
-          idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        },
+        params,
+      }));
+    }
+  }, []);
+
+  const sendPushToken = useCallback((token: string) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'req',
+        id: nextId(),
+        method: 'device.registerPush',
+        params: { pushToken: token, platform: 'ios' },
       }));
     }
   }, []);
@@ -153,5 +175,5 @@ export function useWebSocket(): UseWebSocketReturn {
 
   useEffect(() => { return () => cleanup(); }, [cleanup]);
 
-  return { status, send, connect, disconnect, onMessage };
+  return { status, send, sendPushToken, connect, disconnect, onMessage };
 }

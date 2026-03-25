@@ -12,16 +12,19 @@ import {
   Image,
   Clipboard,
   Alert,
+  ActionSheetIOS,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
 import { getPairing, saveMessages, getMessages } from '../storage';
-import { useWebSocket } from '../useWebSocket';
+import { useWebSocket, Attachment } from '../useWebSocket';
 import { Message, ConnectionStatus, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
+import { registerForPushNotifications, addNotificationResponseReceivedListener } from '../notifications';
+import { pickImage, takePhoto, pickDocument, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -110,8 +113,10 @@ export function ChatScreen({ navigation }: Props) {
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
   const [isTyping, setIsTyping] = useState(false);
+  const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
   const flatListRef = useRef<FlatList>(null);
-  const { status, send, connect, onMessage } = useWebSocket();
+  const pushTokenSent = useRef(false);
+  const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
   const insets = useSafeAreaInsets();
 
   // Load pairing and messages on mount
@@ -131,7 +136,29 @@ export function ChatScreen({ navigation }: Props) {
         setMessages(saved);
       }
     })();
+
+    // Handle notification taps — navigate to chat
+    const sub = addNotificationResponseReceivedListener(() => {
+      // Already on chat screen, just scroll to bottom
+      flatListRef.current?.scrollToEnd({ animated: true });
+    });
+    return () => sub.remove();
   }, []);
+
+  // Register push token once connected
+  useEffect(() => {
+    if (status === 'connected' && !pushTokenSent.current) {
+      pushTokenSent.current = true;
+      registerForPushNotifications().then((token) => {
+        if (token) {
+          sendPushToken(token);
+        }
+      });
+    }
+    if (status === 'disconnected') {
+      pushTokenSent.current = false;
+    }
+  }, [status, sendPushToken]);
 
   // Track the current streaming message ID
   const streamingMsgId = useRef<string | null>(null);
@@ -201,13 +228,35 @@ export function ChatScreen({ navigation }: Props) {
     }
   }, [messages.length]);
 
+  const handleAttachmentPress = useCallback(() => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        options: ['Photo Library', 'Take Photo', 'Document', 'Cancel'],
+        cancelButtonIndex: 3,
+      },
+      async (buttonIndex) => {
+        let result: AttachmentResult | null = null;
+        if (buttonIndex === 0) result = await pickImage();
+        else if (buttonIndex === 1) result = await takePhoto();
+        else if (buttonIndex === 2) result = await pickDocument();
+        if (result) setPendingAttachment(result);
+      }
+    );
+  }, []);
+
   const handleSend = useCallback(() => {
     const text = inputText.trim();
-    if (!text) return;
+    const attachment = pendingAttachment;
+
+    if (!text && !attachment) return;
+
+    const displayText = attachment
+      ? text || `📎 ${attachment.fileName}`
+      : text;
 
     const newMsg: Message = {
       id: `user-${Date.now()}-${Math.random()}`,
-      text,
+      text: displayText,
       sender: 'user',
       timestamp: Date.now(),
     };
@@ -218,10 +267,20 @@ export function ChatScreen({ navigation }: Props) {
       return updated;
     });
 
-    send(text);
+    if (attachment) {
+      send(text || attachment.fileName, [{
+        data: attachment.base64,
+        mimeType: attachment.mimeType,
+        fileName: attachment.fileName,
+      }]);
+    } else {
+      send(text);
+    }
+
     setInputText('');
+    setPendingAttachment(null);
     setIsTyping(true);
-  }, [inputText, send]);
+  }, [inputText, pendingAttachment, send]);
 
   return (
     <View style={styles.container}>
@@ -280,8 +339,36 @@ export function ChatScreen({ navigation }: Props) {
 
         {/* Input Bar */}
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
-          {/* Subtle gold border glow on the input container */}
+          {/* Attachment Preview */}
+          {pendingAttachment && (
+            <View style={styles.attachmentPreview}>
+              {pendingAttachment.mimeType.startsWith('image/') ? (
+                <Image source={{ uri: pendingAttachment.uri }} style={styles.attachmentThumb} />
+              ) : (
+                <View style={styles.attachmentFileIcon}>
+                  <Text style={styles.attachmentFileEmoji}>📄</Text>
+                </View>
+              )}
+              <Text style={styles.attachmentName} numberOfLines={1}>
+                {pendingAttachment.fileName}
+              </Text>
+              <TouchableOpacity
+                onPress={() => setPendingAttachment(null)}
+                style={styles.attachmentRemove}
+              >
+                <Text style={styles.attachmentRemoveText}>✕</Text>
+              </TouchableOpacity>
+            </View>
+          )}
           <View style={styles.inputContainer}>
+            {/* Attachment button */}
+            <TouchableOpacity
+              onPress={handleAttachmentPress}
+              style={styles.attachButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.attachIcon}>+</Text>
+            </TouchableOpacity>
             <TextInput
               style={styles.input}
               value={inputText}
@@ -295,10 +382,10 @@ export function ChatScreen({ navigation }: Props) {
             <TouchableOpacity
               style={[
                 styles.sendButton,
-                !inputText.trim() && styles.sendButtonDisabled,
+                (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
               ]}
               onPress={handleSend}
-              disabled={!inputText.trim()}
+              disabled={!inputText.trim() && !pendingAttachment}
               activeOpacity={0.75}
             >
               <Text style={styles.sendIcon}>↑</Text>
@@ -516,6 +603,56 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
   },
 
+  // Attachment preview
+  attachmentPreview: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.primaryGold,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.xs + 2,
+    marginBottom: spacing.xs,
+    gap: spacing.sm,
+  },
+  attachmentThumb: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.primaryGold,
+  },
+  attachmentFileIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentFileEmoji: {
+    fontSize: 20,
+  },
+  attachmentName: {
+    flex: 1,
+    color: colors.onSurface,
+    fontSize: 13,
+  },
+  attachmentRemove: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: colors.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentRemoveText: {
+    color: colors.outline,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+
   // Input bar
   inputBar: {
     paddingHorizontal: spacing.md,
@@ -534,6 +671,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.sm,
     paddingVertical: spacing.xs,
     gap: spacing.xs,
+  },
+  attachButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: colors.outlineVariant,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  attachIcon: {
+    color: colors.outline,
+    fontSize: 20,
+    fontWeight: '300',
+    marginTop: -1,
   },
   input: {
     flex: 1,

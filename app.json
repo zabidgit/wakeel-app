@@ -18,12 +18,14 @@
       "backgroundColor": "#050505",
       "infoPlist": {
         "UIBackgroundModes": [
-          "remote-notification",
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "49"
+      "buildNumber": "49",
+      "entitlements": {
+        "aps-environment": "production"
+      }
     },
     "android": {
       "adaptiveIcon": {
@@ -48,6 +50,23 @@
     },
     "updates": {
       "url": "https://u.expo.dev/621af8c4-fdbd-492d-bf22-2db15c196ebe"
-    }
+    },
+    "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/owl-logo.png",
+          "color": "#C9A84C"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Wakeel needs access to your photos to share them in chat.",
+          "cameraPermission": "Wakeel needs access to your camera to take photos."
+        }
+      ],
+      "expo-document-picker"
+    ]
   }
 }
