@@ -33,11 +33,17 @@ export function useWebSocket(): UseWebSocketReturn {
     return () => { mountedRef.current = false; };
   }, []);
 
+  const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
   const doConnect = useCallback((pairing: PairingData) => {
     // Clean up any existing connection
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
       reconnectRef.current = null;
+    }
+    if (healthRef.current) {
+      clearInterval(healthRef.current);
+      healthRef.current = null;
     }
     if (wsRef.current) {
       const old = wsRef.current;
@@ -57,26 +63,63 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onopen = () => {
       // Send connect frame — completely synchronous, no async
       const id = `r${++reqId}`;
-      const frame = JSON.stringify({
-        type: 'req',
-        id,
-        method: 'connect',
-        params: {
-          minProtocol: 3,
-          maxProtocol: 3,
-          role: 'operator',
-          scopes: ['operator.read', 'operator.write', 'operator.admin'],
-          auth: { token: pairing.token },
-          client: {
-            id: 'openclaw-ios',
-            mode: 'webchat',
-            platform: 'ios',
-            version: '1.0.0',
-            deviceFamily: 'phone',
-          },
+      const connectParams: any = {
+        minProtocol: 3,
+        maxProtocol: 3,
+        role: 'operator',
+        scopes: ['operator.read', 'operator.write', 'operator.admin'],
+        auth: { token: pairing.token },
+        client: {
+          id: 'openclaw-ios',
+          mode: 'webchat',
+          platform: 'ios',
+          version: '1.0.0',
+          deviceFamily: 'phone',
         },
-      });
-      ws.send(frame);
+      };
+
+      // Attach device identity if loaded
+      try {
+        if (deviceIdentityCache && cachedSignPayload && cachedBuildPayloadV3) {
+          const d = deviceIdentityCache;
+          const nonce = Math.random().toString(36).substring(2, 15);
+          const signedAt = Date.now();
+          const payload = cachedBuildPayloadV3({
+            deviceId: d.deviceId,
+            clientId: 'openclaw-ios',
+            clientMode: 'webchat',
+            role: 'operator',
+            scopes: ['operator.read', 'operator.write', 'operator.admin'],
+            signedAtMs: signedAt,
+            token: pairing.token,
+            nonce,
+            platform: 'ios',
+            deviceFamily: 'phone',
+          });
+          connectParams.device = {
+            id: d.deviceId,
+            publicKey: d.publicKeyB64url,
+            signature: cachedSignPayload(d, payload),
+            signedAt,
+            nonce,
+          };
+        }
+      } catch {}
+
+      ws.send(JSON.stringify({ type: 'req', id, method: 'connect', params: connectParams }));
+
+      // Start health keepalive every 25s (server expects within 30s)
+      if (healthRef.current) clearInterval(healthRef.current);
+      healthRef.current = setInterval(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'req',
+            id: `r${++reqId}`,
+            method: 'health',
+            params: {},
+          }));
+        }
+      }, 25000);
     };
 
     ws.onmessage = (event) => {
@@ -137,6 +180,10 @@ export function useWebSocket(): UseWebSocketReturn {
     if (reconnectRef.current) {
       clearTimeout(reconnectRef.current);
       reconnectRef.current = null;
+    }
+    if (healthRef.current) {
+      clearInterval(healthRef.current);
+      healthRef.current = null;
     }
     if (wsRef.current) {
       const ws = wsRef.current;
