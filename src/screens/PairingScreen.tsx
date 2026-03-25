@@ -9,11 +9,13 @@ import {
   Platform,
   ActivityIndicator,
   ScrollView,
+  Image,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { OwlLogo } from '../components/OwlLogo';
 import { colors, spacing } from '../theme';
+
+const owlLogo = require('../../assets/owl-logo.png');
 import { savePairing } from '../storage';
 import { PairingData, RootStackParamList } from '../types';
 
@@ -84,7 +86,7 @@ export function PairingScreen({ navigation }: Props) {
           >
             {/* Logo */}
             <View style={styles.logoSection}>
-              <OwlLogo size={140} showTitle={false} showTagline={false} showGlow />
+              <Image source={owlLogo} style={styles.owlImage} />
             </View>
 
             {/* Headlines */}
@@ -221,6 +223,11 @@ const styles = StyleSheet.create({
     marginTop: spacing.xxl,
     marginBottom: spacing.xxl,
     alignItems: 'center',
+  },
+  owlImage: {
+    width: 140,
+    height: 140,
+    borderRadius: 20,
   },
 
   // Headlines

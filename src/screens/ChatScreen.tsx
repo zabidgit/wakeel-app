@@ -8,6 +8,7 @@ import {
   FlatList,
   KeyboardAvoidingView,
   Platform,
+  Image,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -17,8 +18,9 @@ import { useWebSocket } from '../useWebSocket';
 import { Message, ConnectionStatus, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
-import { OwlLogo } from '../components/OwlLogo';
 import { StreamingCursor } from '../components/StreamingCursor';
+
+const owlLogo = require('../../assets/owl-logo.png');
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
@@ -75,7 +77,7 @@ function MessageBubble({ message }: { message: Message }) {
       {/* Avatar row */}
       <View style={styles.wakeelAvatarRow}>
         <View style={styles.wakeelAvatar}>
-          <Text style={styles.wakeelAvatarIcon}>✦</Text>
+          <Image source={owlLogo} style={styles.wakeelAvatarImg} />
         </View>
         <Text style={styles.wakeelLabel}>Wakeel Oracle</Text>
       </View>
@@ -227,7 +229,7 @@ export function ChatScreen({ navigation }: Props) {
           {/* Logo + name + status */}
           <View style={styles.headerLeft}>
             <View style={styles.logoMini}>
-              <OwlLogo size={28} showTitle={false} showTagline={false} />
+              <Image source={owlLogo} style={styles.logoMiniImg} />
             </View>
             <View style={styles.headerTitleGroup}>
               <Text style={styles.headerTitle}>{wakeelName}</Text>
@@ -259,7 +261,7 @@ export function ChatScreen({ navigation }: Props) {
           ListFooterComponent={isTyping ? <TypingIndicator /> : null}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
-              <Text style={styles.emptyIcon}>✦</Text>
+              <Image source={owlLogo} style={styles.emptyOwl} />
               <Text style={styles.emptyText}>Say hello to your Wakeel</Text>
               <Text style={styles.emptySubtext}>I'm here to help — ask me anything</Text>
             </View>
@@ -355,9 +357,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.outlineVariant,
   },
-  logoMiniText: {
-    fontSize: 18,
-    color: colors.primaryTextGold,
+  logoMiniImg: {
+    width: 28,
+    height: 28,
+    borderRadius: 6,
   },
   headerTitleGroup: {
     gap: 2,
@@ -449,9 +452,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  wakeelAvatarIcon: {
-    fontSize: 14,
-    color: colors.primaryTextGold,
+  wakeelAvatarImg: {
+    width: 22,
+    height: 22,
+    borderRadius: 4,
   },
   wakeelLabel: {
     fontSize: 10,
@@ -482,11 +486,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingVertical: 80,
   },
-  emptyIcon: {
-    fontSize: 36,
-    color: colors.primaryGold,
+  emptyOwl: {
+    width: 80,
+    height: 80,
     marginBottom: spacing.md,
     opacity: 0.5,
+    borderRadius: 12,
   },
   emptyText: {
     color: colors.onSurface,

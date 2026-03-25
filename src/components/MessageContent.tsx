@@ -1,5 +1,5 @@
 import React from 'react';
-import { Text, StyleSheet } from 'react-native';
+import { Text, View, StyleSheet } from 'react-native';
 import Markdown from 'react-native-markdown-display';
 import { colors } from '../theme';
 
@@ -67,6 +67,25 @@ const wakeelMarkdownStyles = StyleSheet.create({
   heading3: { fontSize: 15, fontWeight: '400' as const, color: colors.onSurfaceVariant, marginVertical: 3 },
 });
 
+// Custom rules to make all text nodes selectable
+const selectableRules = {
+  text: (node: any, children: any, parent: any, styles: any) => (
+    <Text key={node.key} selectable style={styles.text}>
+      {node.content}
+    </Text>
+  ),
+  textgroup: (node: any, children: any, parent: any, styles: any) => (
+    <Text key={node.key} selectable style={styles.textgroup}>
+      {children}
+    </Text>
+  ),
+  paragraph: (node: any, children: any, parent: any, styles: any) => (
+    <Text key={node.key} selectable style={styles.paragraph}>
+      {children}
+    </Text>
+  ),
+};
+
 export function MessageContent({ text, isUser }: MessageContentProps) {
   const hasMarkdown = /[*_`#\[\]>-]/.test(text);
 
@@ -79,7 +98,10 @@ export function MessageContent({ text, isUser }: MessageContentProps) {
   }
 
   return (
-    <Markdown style={isUser ? userMarkdownStyles : wakeelMarkdownStyles}>
+    <Markdown
+      style={isUser ? userMarkdownStyles : wakeelMarkdownStyles}
+      rules={selectableRules}
+    >
       {text}
     </Markdown>
   );

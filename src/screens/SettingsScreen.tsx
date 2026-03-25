@@ -7,7 +7,10 @@ import {
   Alert,
   ScrollView,
   Platform,
+  Image,
 } from 'react-native';
+
+const owlLogo = require('../../assets/owl-logo.png');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
@@ -126,7 +129,7 @@ export function SettingsScreen({ navigation }: Props) {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerLeft}>
           <View style={styles.logoMini}>
-            <Text style={styles.logoMiniText}>✦</Text>
+            <Image source={owlLogo} style={styles.logoMiniImg} />
           </View>
           <Text style={styles.headerBrand}>Wakeel</Text>
         </View>
@@ -274,9 +277,10 @@ const styles = StyleSheet.create({
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: colors.outlineVariant,
   },
-  logoMiniText: {
-    fontSize: 16,
-    color: colors.primaryTextGold,
+  logoMiniImg: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
   },
   headerBrand: {
     fontSize: 20,
