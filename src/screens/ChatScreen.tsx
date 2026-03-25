@@ -17,6 +17,7 @@ import { useWebSocket } from '../useWebSocket';
 import { Message, ConnectionStatus, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
+import { OwlLogo } from '../components/OwlLogo';
 import { StreamingCursor } from '../components/StreamingCursor';
 
 type Props = {
@@ -133,7 +134,7 @@ export function ChatScreen({ navigation }: Props) {
         const streamId = streamingMsgId.current;
         streamingMsgId.current = null;
         const finalMsg: Message = {
-          id: streamId || `wakeel-${Date.now()}-${Math.random()}`,
+          id: `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
           timestamp: Date.now(),
@@ -226,7 +227,7 @@ export function ChatScreen({ navigation }: Props) {
           {/* Logo + name + status */}
           <View style={styles.headerLeft}>
             <View style={styles.logoMini}>
-              <Text style={styles.logoMiniText}>✦</Text>
+              <OwlLogo size={28} showTitle={false} showTagline={false} />
             </View>
             <View style={styles.headerTitleGroup}>
               <Text style={styles.headerTitle}>{wakeelName}</Text>

@@ -72,7 +72,7 @@ export function MessageContent({ text, isUser }: MessageContentProps) {
 
   if (!hasMarkdown) {
     return (
-      <Text style={isUser ? userMarkdownStyles.body : wakeelMarkdownStyles.body}>
+      <Text selectable style={isUser ? userMarkdownStyles.body : wakeelMarkdownStyles.body}>
         {text}
       </Text>
     );
