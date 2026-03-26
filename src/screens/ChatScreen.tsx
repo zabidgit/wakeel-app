@@ -24,7 +24,7 @@ import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { registerForPushNotifications, addNotificationResponseReceivedListener } from '../notifications';
-import { pickImage, takePhoto, pickDocument, AttachmentResult } from '../attachments';
+import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -244,7 +244,7 @@ export function ChatScreen({ navigation }: Props) {
     );
   }, []);
 
-  const handleSend = useCallback(() => {
+  const handleSend = useCallback(async () => {
     const text = inputText.trim();
     const attachment = pendingAttachment;
 
@@ -254,6 +254,7 @@ export function ChatScreen({ navigation }: Props) {
       ? text || `📎 ${attachment.fileName}`
       : text;
 
+    // Show message immediately in UI
     const newMsg: Message = {
       id: `user-${Date.now()}-${Math.random()}`,
       text: displayText,
@@ -267,19 +268,30 @@ export function ChatScreen({ navigation }: Props) {
       return updated;
     });
 
-    if (attachment) {
-      send(text || attachment.fileName, [{
-        data: attachment.base64,
-        mimeType: attachment.mimeType,
-        fileName: attachment.fileName,
-      }]);
-    } else {
-      send(text);
-    }
-
     setInputText('');
     setPendingAttachment(null);
     setIsTyping(true);
+
+    if (attachment) {
+      // Upload file to gateway media server first
+      const uploaded = await uploadAttachment(
+        attachment,
+        'https://app.getwakeel.app',
+        '2b8f265e6f5e8ac1f459e126582ba21dfff39a8b02bf5a2a',
+      );
+
+      if (uploaded) {
+        // Send in the same format as Discord/WhatsApp inbound media
+        const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
+        const fullMessage = text ? `${mediaTag}\n${text}` : mediaTag;
+        send(fullMessage);
+      } else {
+        // Upload failed — send text only with a note
+        send(text || `[Failed to upload: ${attachment.fileName}]`);
+      }
+    } else {
+      send(text);
+    }
   }, [inputText, pendingAttachment, send]);
 
   return (

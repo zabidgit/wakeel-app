@@ -59,6 +59,47 @@ export async function takePhoto(): Promise<AttachmentResult | null> {
   };
 }
 
+/**
+ * Upload an attachment to the gateway's media upload server.
+ * Returns the server-side file path for use in [media attached] tags.
+ */
+export async function uploadAttachment(
+  attachment: AttachmentResult,
+  gatewayOrigin: string,
+  authToken: string,
+): Promise<{ path: string; mimeType: string } | null> {
+  try {
+    const uploadUrl = `${gatewayOrigin.replace(/\/$/, '')}/upload`;
+    
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({
+        data: attachment.base64,
+        mimeType: attachment.mimeType,
+        fileName: attachment.fileName,
+      }),
+    });
+
+    if (!response.ok) {
+      console.error('Upload failed:', response.status);
+      return null;
+    }
+
+    const result = await response.json();
+    return {
+      path: result.path,
+      mimeType: result.mimeType,
+    };
+  } catch (error) {
+    console.error('Upload error:', error);
+    return null;
+  }
+}
+
 export async function pickDocument(): Promise<AttachmentResult | null> {
   const result = await DocumentPicker.getDocumentAsync({
     type: '*/*',
