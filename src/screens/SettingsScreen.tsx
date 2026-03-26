@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
+  ActionSheetIOS,
   ScrollView,
   Platform,
   Image,
@@ -91,28 +92,66 @@ export function SettingsScreen({ navigation }: Props) {
     getPairing().then(setPairing);
   }, []);
 
-  const handleClearMessages = () => {
-    Alert.alert(
-      'Clear Messages',
-      'Delete all chat history? This can\'t be undone.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Clear All',
-          style: 'destructive',
-          onPress: async () => {
-            // Clear legacy messages
-            await clearMessages();
-            // Clear all chat-scoped messages
-            const chats = await getChats();
-            for (const chat of chats) {
-              await clearChatMessages(chat.sessionKey);
-            }
-            Alert.alert('Done', 'All messages cleared.');
-            navigation.goBack();
-          },
-        },
-      ],
+  const handleClearMessages = async () => {
+    const chats = await getChats();
+    const chatNames = chats.map(c => `${c.emoji} ${c.name}`);
+
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Clear Messages',
+        message: 'Choose which chat to clear:',
+        options: [...chatNames, 'Clear All Chats', 'Cancel'],
+        cancelButtonIndex: chatNames.length + 1,
+        destructiveButtonIndex: chatNames.length, // "Clear All" is destructive
+      },
+      async (buttonIndex) => {
+        if (buttonIndex === chatNames.length + 1) return; // Cancel
+
+        if (buttonIndex === chatNames.length) {
+          // Clear All
+          Alert.alert(
+            'Clear All Chats',
+            'Delete ALL chat history? This can\'t be undone.',
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Clear All',
+                style: 'destructive',
+                onPress: async () => {
+                  await clearMessages();
+                  for (const chat of chats) {
+                    await clearChatMessages(chat.sessionKey);
+                  }
+                  Alert.alert('Done', 'All messages cleared.');
+                  navigation.goBack();
+                },
+              },
+            ],
+          );
+        } else {
+          // Clear specific chat
+          const chat = chats[buttonIndex];
+          Alert.alert(
+            `Clear ${chat.name}`,
+            `Delete all messages in "${chat.name}"? This can't be undone.`,
+            [
+              { text: 'Cancel', style: 'cancel' },
+              {
+                text: 'Clear',
+                style: 'destructive',
+                onPress: async () => {
+                  await clearChatMessages(chat.sessionKey);
+                  if (chat.sessionKey === 'main') {
+                    await clearMessages(); // Also clear legacy
+                  }
+                  Alert.alert('Done', `"${chat.name}" messages cleared.`);
+                  navigation.goBack();
+                },
+              },
+            ],
+          );
+        }
+      },
     );
   };
 
