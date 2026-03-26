@@ -9,6 +9,7 @@ import {
   ScrollView,
   Platform,
   Image,
+  Linking,
 } from 'react-native';
 
 const owlLogo = require('../../assets/owl-logo.png');
@@ -245,6 +246,7 @@ export function SettingsScreen({ navigation }: Props) {
             iconBg={colors.surfaceContainerHigh}
             title="Privacy"
             subtitle="Data Encryption & Security"
+            onPress={() => Linking.openURL('https://app.getwakeel.app/privacy')}
           />
         </View>
 
@@ -283,9 +285,13 @@ export function SettingsScreen({ navigation }: Props) {
           <Text style={styles.footerTitle}>Wakeel · وکیل</Text>
           <Text style={styles.footerVersion}>v1.0.0 · Your Personal AI Agent</Text>
           <View style={styles.footerLinks}>
-            <Text style={styles.footerLink}>Documentation</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://getwakeel.app')}>
+              <Text style={styles.footerLink}>Website</Text>
+            </TouchableOpacity>
             <Text style={styles.footerLinkSep}>·</Text>
-            <Text style={styles.footerLink}>Privacy</Text>
+            <TouchableOpacity onPress={() => Linking.openURL('https://app.getwakeel.app/privacy')}>
+              <Text style={styles.footerLink}>Privacy</Text>
+            </TouchableOpacity>
           </View>
         </View>
       </ScrollView>
