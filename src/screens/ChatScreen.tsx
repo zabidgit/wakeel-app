@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -17,13 +17,24 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
-import { getPairing, saveMessages, getMessages } from '../storage';
+import {
+  getPairing,
+  saveMessages,
+  getMessages,
+  getChats,
+  saveChats,
+  getChatMessages,
+  saveChatMessages,
+  clearChatMessages,
+} from '../storage';
 import { useWebSocket, Attachment } from '../useWebSocket';
-import { Message, ConnectionStatus, RootStackParamList } from '../types';
+import { Message, ConnectionStatus, ChatInfo, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
-import { registerForPushNotifications, addNotificationResponseReceivedListener } from '../notifications';
+import { ConnectionBanner } from '../components/ConnectionBanner';
+import { Sidebar } from '../components/Sidebar';
+import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
@@ -31,6 +42,29 @@ const owlLogo = require('../../assets/owl-logo.png');
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Chat'>;
 };
+
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+
+function insertSorted(arr: Message[], msg: Message): Message[] {
+  const filtered = arr.filter(m => m.id !== msg.id);
+  let lo = 0, hi = filtered.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (filtered[mid].timestamp <= msg.timestamp) lo = mid + 1;
+    else hi = mid;
+  }
+  const result = [...filtered];
+  result.splice(lo, 0, msg);
+  return result;
+}
+
+function dedupeAndSort(msgs: Message[]): Message[] {
+  const seen = new Map<string, Message>();
+  for (const m of msgs) {
+    seen.set(m.id, m);
+  }
+  return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
+}
 
 // ─── Status Dot ───────────────────────────────────────────────────────────────
 
@@ -62,14 +96,20 @@ function formatTime(timestamp: number): string {
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-function MessageBubble({ message }: { message: Message }) {
+const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
   const isUser = message.sender === 'user';
-  const isStreaming = message.id.startsWith('wakeel-stream-');
 
   if (isUser) {
     return (
       <View style={styles.bubbleRowUser}>
         <View style={styles.bubbleUser}>
+          {message.imageUri && (
+            <Image
+              source={{ uri: message.imageUri }}
+              style={styles.inlineImage}
+              resizeMode="cover"
+            />
+          )}
           <MessageContent text={message.text} isUser />
           <Text style={styles.timeTextUser}>{formatTime(message.timestamp)}</Text>
         </View>
@@ -77,7 +117,6 @@ function MessageBubble({ message }: { message: Message }) {
     );
   }
 
-  // Wakeel message — no bubble background, avatar + label
   const handleLongPress = () => {
     Clipboard.setString(message.text);
     Alert.alert('Copied', 'Message copied to clipboard');
@@ -86,25 +125,30 @@ function MessageBubble({ message }: { message: Message }) {
   return (
     <TouchableWithoutFeedback onLongPress={handleLongPress}>
       <View style={styles.bubbleRowWakeel}>
-        {/* Avatar row */}
         <View style={styles.wakeelAvatarRow}>
           <View style={styles.wakeelAvatar}>
             <Image source={owlLogo} style={styles.wakeelAvatarImg} />
           </View>
-          <Text style={styles.wakeelLabel}>Wakeel Oracle</Text>
+          <Text style={styles.wakeelLabel}>Wakeel</Text>
         </View>
-
-        {/* Message text */}
         <View style={styles.wakeelMessageBody}>
           <MessageContent text={message.text} isUser={false} />
           {isStreaming && <StreamingCursor />}
         </View>
-
         <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
       </View>
     </TouchableWithoutFeedback>
   );
-}
+}, (prev, next) => {
+  return prev.message.id === next.message.id
+    && prev.message.text === next.message.text
+    && prev.message.imageUri === next.message.imageUri
+    && prev.isStreaming === next.isStreaming;
+});
+
+// ─── Emoji picker for new chats ───────────────────────────────────────────────
+
+const CHAT_EMOJIS = ['💬', '🏠', '🏥', '💼', '📚', '🎯', '🛒', '✈️', '🎮', '💡', '🔬', '🎨'];
 
 // ─── Chat Screen ──────────────────────────────────────────────────────────────
 
@@ -114,12 +158,28 @@ export function ChatScreen({ navigation }: Props) {
   const [wakeelName, setWakeelName] = useState('Wakeel');
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
+
+  // Multi-chat state
+  const [chats, setChats] = useState<ChatInfo[]>([]);
+  const [activeChat, setActiveChat] = useState<ChatInfo | null>(null);
+  const [sidebarVisible, setSidebarVisible] = useState(false);
+
+  // Streaming message
+  const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
+  const streamingMsgId = useRef<string | null>(null);
+
   const flatListRef = useRef<FlatList>(null);
   const pushTokenSent = useRef(false);
+  const activeChatRef = useRef<ChatInfo | null>(null);
   const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
   const insets = useSafeAreaInsets();
 
-  // Load pairing and messages on mount
+  // Keep ref in sync for use in callbacks
+  useEffect(() => {
+    activeChatRef.current = activeChat;
+  }, [activeChat]);
+
+  // Load pairing, chats, and messages on mount
   useEffect(() => {
     (async () => {
       const pairing = await getPairing();
@@ -131,15 +191,32 @@ export function ChatScreen({ navigation }: Props) {
       setWakeelName(pairing.name || 'Wakeel');
       connect(pairing);
 
-      const saved = await getMessages();
+      // Load chats
+      const savedChats = await getChats();
+      setChats(savedChats);
+
+      // Set active chat (default to first = General)
+      const firstChat = savedChats[0];
+      setActiveChat(firstChat);
+      activeChatRef.current = firstChat;
+
+      // Load messages for active chat
+      const saved = await getChatMessages(firstChat.sessionKey);
       if (saved.length > 0) {
-        setMessages(saved);
+        setMessages(dedupeAndSort(saved));
+      } else {
+        // Try legacy messages (first time migration)
+        const legacy = await getMessages();
+        if (legacy.length > 0) {
+          setMessages(dedupeAndSort(legacy));
+        }
       }
     })();
 
-    // Handle notification taps — navigate to chat
+    clearBadge();
+
     const sub = addNotificationResponseReceivedListener(() => {
-      // Already on chat screen, just scroll to bottom
+      clearBadge();
       flatListRef.current?.scrollToEnd({ animated: true });
     });
     return () => sub.remove();
@@ -152,6 +229,7 @@ export function ChatScreen({ navigation }: Props) {
       registerForPushNotifications().then((token) => {
         if (token) {
           sendPushToken(token);
+          registerTokenWithPushServer(token);
         }
       });
     }
@@ -160,73 +238,167 @@ export function ChatScreen({ navigation }: Props) {
     }
   }, [status, sendPushToken]);
 
-  // Track the current streaming message ID
-  const streamingMsgId = useRef<string | null>(null);
-
-  // Handle incoming messages (streaming deltas + finals)
+  // Handle incoming messages
   useEffect(() => {
     onMessage((text: string, isFinal: boolean) => {
       if (isFinal) {
-        // Final message — replace streaming bubble in-place
         setIsTyping(false);
-        // Capture ref BEFORE setMessages — React 18 batching may defer the updater
+        setStreamingMessage(null);
         const streamId = streamingMsgId.current;
         streamingMsgId.current = null;
+
         const finalMsg: Message = {
           id: `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
           timestamp: Date.now(),
         };
+
         setMessages(prev => {
-          if (streamId) {
-            const idx = prev.findIndex(m => m.id === streamId);
-            if (idx >= 0) {
-              const updated = [...prev];
-              updated[idx] = finalMsg;
-              saveMessages(updated);
-              return updated;
-            }
+          let base = streamId ? prev.filter(m => m.id !== streamId) : prev;
+          const updated = insertSorted(base, finalMsg);
+          // Save to active chat's storage
+          const currentChat = activeChatRef.current;
+          if (currentChat) {
+            saveChatMessages(currentChat.sessionKey, updated);
+          } else {
+            saveMessages(updated);
           }
-          const updated = [...prev, finalMsg];
-          saveMessages(updated);
           return updated;
         });
       } else {
-        // Streaming delta — update or create streaming message
         setIsTyping(false);
         if (!streamingMsgId.current) {
           streamingMsgId.current = `wakeel-stream-${Date.now()}`;
         }
-        const msgId = streamingMsgId.current;
-        setMessages(prev => {
-          const idx = prev.findIndex(m => m.id === msgId);
-          const streamMsg: Message = {
-            id: msgId,
-            text,
-            sender: 'wakeel',
-            timestamp: Date.now(),
-          };
-          if (idx >= 0) {
-            const updated = [...prev];
-            updated[idx] = streamMsg;
-            return updated;
-          } else {
-            return [...prev, streamMsg];
-          }
+        setStreamingMessage({
+          id: streamingMsgId.current,
+          text,
+          sender: 'wakeel',
+          timestamp: Date.now(),
         });
       }
     });
   }, [onMessage]);
 
-  // Auto-scroll on new messages
+  // Auto-scroll
   useEffect(() => {
-    if (messages.length > 0) {
+    if (messages.length > 0 || streamingMessage) {
       setTimeout(() => {
         flatListRef.current?.scrollToEnd({ animated: true });
       }, 100);
     }
-  }, [messages.length]);
+  }, [messages.length, streamingMessage]);
+
+  // ─── Chat switching ───────────────────────────────────────────────────────
+
+  const switchChat = useCallback(async (chat: ChatInfo) => {
+    // Save current messages first
+    if (activeChat) {
+      await saveChatMessages(activeChat.sessionKey, messages);
+    }
+
+    setActiveChat(chat);
+    activeChatRef.current = chat;
+    setSidebarVisible(false);
+
+    // Clear streaming state
+    setStreamingMessage(null);
+    streamingMsgId.current = null;
+    setIsTyping(false);
+
+    // Load new chat's messages
+    const chatMsgs = await getChatMessages(chat.sessionKey);
+    setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
+  }, [activeChat, messages]);
+
+  const handleNewChat = useCallback(() => {
+    Alert.prompt(
+      'New Chat',
+      'Enter a name for this chat:',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Create',
+          onPress: async (name?: string) => {
+            if (!name?.trim()) return;
+            const id = `chat-${Date.now()}`;
+            const sessionKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
+            // Pick a random emoji from the list
+            const emoji = CHAT_EMOJIS[Math.floor(Math.random() * CHAT_EMOJIS.length)];
+            const newChat: ChatInfo = {
+              id,
+              name: name.trim(),
+              emoji,
+              sessionKey,
+              createdAt: Date.now(),
+            };
+            const updated = [...chats, newChat];
+            setChats(updated);
+            await saveChats(updated);
+            switchChat(newChat);
+          },
+        },
+      ],
+      'plain-text',
+    );
+  }, [chats, switchChat]);
+
+  const handleDeleteChat = useCallback(async (chat: ChatInfo) => {
+    if (chat.sessionKey === 'main') return; // Can't delete General
+
+    Alert.alert(
+      'Delete Chat',
+      `Delete "${chat.name}" and all its messages? This can't be undone.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            const updated = chats.filter(c => c.id !== chat.id);
+            setChats(updated);
+            await saveChats(updated);
+            await clearChatMessages(chat.sessionKey);
+
+            // If deleting the active chat, switch to General
+            if (activeChat?.id === chat.id) {
+              const general = updated.find(c => c.sessionKey === 'main') || updated[0];
+              switchChat(general);
+            }
+          },
+        },
+      ],
+    );
+  }, [chats, activeChat, switchChat]);
+
+  const handleRenameChat = useCallback((chat: ChatInfo) => {
+    Alert.prompt(
+      'Rename Chat',
+      `Enter a new name for "${chat.name}":`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Rename',
+          onPress: async (name?: string) => {
+            if (!name?.trim()) return;
+            const updated = chats.map(c =>
+              c.id === chat.id ? { ...c, name: name.trim() } : c
+            );
+            setChats(updated);
+            await saveChats(updated);
+            if (activeChat?.id === chat.id) {
+              setActiveChat({ ...chat, name: name.trim() });
+            }
+          },
+        },
+      ],
+      'plain-text',
+      chat.name,
+    );
+  }, [chats, activeChat]);
+
+  // ─── Attachment handling ──────────────────────────────────────────────────
 
   const handleAttachmentPress = useCallback(() => {
     ActionSheetIOS.showActionSheetWithOptions(
@@ -244,6 +416,8 @@ export function ChatScreen({ navigation }: Props) {
     );
   }, []);
 
+  // ─── Send ─────────────────────────────────────────────────────────────────
+
   const handleSend = useCallback(async () => {
     const text = inputText.trim();
     const attachment = pendingAttachment;
@@ -254,17 +428,22 @@ export function ChatScreen({ navigation }: Props) {
       ? text || `📎 ${attachment.fileName}`
       : text;
 
-    // Show message immediately in UI
     const newMsg: Message = {
       id: `user-${Date.now()}-${Math.random()}`,
       text: displayText,
       sender: 'user',
       timestamp: Date.now(),
+      ...(attachment && attachment.mimeType.startsWith('image/') ? { imageUri: attachment.uri } : {}),
     };
 
     setMessages(prev => {
-      const updated = [...prev, newMsg];
-      saveMessages(updated);
+      const updated = insertSorted(prev, newMsg);
+      const currentChat = activeChatRef.current;
+      if (currentChat) {
+        saveChatMessages(currentChat.sessionKey, updated);
+      } else {
+        saveMessages(updated);
+      }
       return updated;
     });
 
@@ -272,8 +451,10 @@ export function ChatScreen({ navigation }: Props) {
     setPendingAttachment(null);
     setIsTyping(true);
 
+    // Use active chat's sessionKey for sending
+    const sessionKey = activeChat?.sessionKey || 'main';
+
     if (attachment) {
-      // Upload file to gateway media server first
       const uploaded = await uploadAttachment(
         attachment,
         'https://app.getwakeel.app',
@@ -281,22 +462,32 @@ export function ChatScreen({ navigation }: Props) {
       );
 
       if (uploaded) {
-        // Send in the same format as Discord/WhatsApp inbound media
         const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
         const fullMessage = text ? `${mediaTag}\n${text}` : mediaTag;
-        send(fullMessage);
+        send(fullMessage, undefined, sessionKey);
       } else {
-        // Upload failed — send text only with a note
-        send(text || `[Failed to upload: ${attachment.fileName}]`);
+        send(text || `[Failed to upload: ${attachment.fileName}]`, undefined, sessionKey);
       }
     } else {
-      send(text);
+      send(text, undefined, sessionKey);
     }
-  }, [inputText, pendingAttachment, send]);
+  }, [inputText, pendingAttachment, send, activeChat]);
+
+  // Footer
+  const listFooter = useMemo(() => {
+    return (
+      <>
+        {streamingMessage && (
+          <MessageBubble message={streamingMessage} isStreaming />
+        )}
+        {isTyping && !streamingMessage && <TypingIndicator />}
+      </>
+    );
+  }, [streamingMessage, isTyping]);
 
   return (
     <View style={styles.container}>
-      {/* Subtle nebula backgrounds */}
+      {/* Nebula backgrounds */}
       <View style={styles.nebulaTop} />
       <View style={styles.nebulaBottom} />
 
@@ -307,18 +498,26 @@ export function ChatScreen({ navigation }: Props) {
       >
         {/* Header */}
         <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-          {/* Logo + name + status */}
           <View style={styles.headerLeft}>
+            {/* Hamburger menu */}
+            <TouchableOpacity
+              onPress={() => setSidebarVisible(true)}
+              style={styles.hamburgerButton}
+              activeOpacity={0.7}
+            >
+              <Text style={styles.hamburgerIcon}>☰</Text>
+            </TouchableOpacity>
             <View style={styles.logoMini}>
               <Image source={owlLogo} style={styles.logoMiniImg} />
             </View>
             <View style={styles.headerTitleGroup}>
-              <Text style={styles.headerTitle}>{wakeelName}</Text>
+              <Text style={styles.headerTitle} numberOfLines={1}>
+                {activeChat?.name || wakeelName}
+              </Text>
               <StatusDot status={status} />
             </View>
           </View>
 
-          {/* Settings button */}
           <TouchableOpacity
             onPress={() => navigation.navigate('Settings')}
             style={styles.settingsButton}
@@ -326,6 +525,11 @@ export function ChatScreen({ navigation }: Props) {
           >
             <Text style={styles.settingsIcon}>⚙</Text>
           </TouchableOpacity>
+        </View>
+
+        {/* Connection banner */}
+        <View style={styles.bannerContainer}>
+          <ConnectionBanner status={status} />
         </View>
 
         {/* Messages */}
@@ -339,7 +543,7 @@ export function ChatScreen({ navigation }: Props) {
           onContentSizeChange={() =>
             flatListRef.current?.scrollToEnd({ animated: false })
           }
-          ListFooterComponent={isTyping ? <TypingIndicator /> : null}
+          ListFooterComponent={listFooter}
           ListEmptyComponent={
             <View style={styles.emptyContainer}>
               <Image source={owlLogo} style={styles.emptyOwl} />
@@ -351,7 +555,6 @@ export function ChatScreen({ navigation }: Props) {
 
         {/* Input Bar */}
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
-          {/* Attachment Preview */}
           {pendingAttachment && (
             <View style={styles.attachmentPreview}>
               {pendingAttachment.mimeType.startsWith('image/') ? (
@@ -373,7 +576,6 @@ export function ChatScreen({ navigation }: Props) {
             </View>
           )}
           <View style={styles.inputContainer}>
-            {/* Attachment button */}
             <TouchableOpacity
               onPress={handleAttachmentPress}
               style={styles.attachButton}
@@ -405,6 +607,22 @@ export function ChatScreen({ navigation }: Props) {
           </View>
         </View>
       </KeyboardAvoidingView>
+
+      {/* Sidebar overlay */}
+      <Sidebar
+        visible={sidebarVisible}
+        onClose={() => setSidebarVisible(false)}
+        chats={chats}
+        activeChatId={activeChat?.id || 'general'}
+        onSelectChat={switchChat}
+        onNewChat={handleNewChat}
+        onDeleteChat={handleDeleteChat}
+        onRenameChat={handleRenameChat}
+        onSettings={() => {
+          setSidebarVisible(false);
+          navigation.navigate('Settings');
+        }}
+      />
     </View>
   );
 }
@@ -454,12 +672,21 @@ const styles = StyleSheet.create({
   headerLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    gap: 10,
+    flex: 1,
+  },
+  hamburgerButton: {
+    padding: 4,
+    marginRight: 2,
+  },
+  hamburgerIcon: {
+    fontSize: 20,
+    color: colors.outline,
   },
   logoMini: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 36,
+    height: 36,
+    borderRadius: 10,
     backgroundColor: colors.surfaceContainerHighest,
     alignItems: 'center',
     justifyContent: 'center',
@@ -467,19 +694,18 @@ const styles = StyleSheet.create({
     borderColor: colors.outlineVariant,
   },
   logoMiniImg: {
-    width: 28,
-    height: 28,
+    width: 24,
+    height: 24,
     borderRadius: 6,
   },
   headerTitleGroup: {
     gap: 2,
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '300',
-    fontStyle: 'italic',
-    letterSpacing: 4,
-    textTransform: 'uppercase',
+    letterSpacing: 2,
     color: colors.primaryTextGold,
   },
   statusRow: {
@@ -504,6 +730,12 @@ const styles = StyleSheet.create({
   settingsIcon: {
     fontSize: 20,
     color: colors.outline,
+  },
+
+  // Connection banner container
+  bannerContainer: {
+    position: 'relative',
+    zIndex: 10,
   },
 
   // Message list
@@ -531,6 +763,12 @@ const styles = StyleSheet.create({
     paddingVertical: spacing.sm + 2,
     maxWidth: '85%',
   },
+  inlineImage: {
+    width: 200,
+    height: 200,
+    borderRadius: 12,
+    marginBottom: spacing.sm,
+  },
   timeTextUser: {
     fontSize: 10,
     color: colors.outline,
@@ -540,7 +778,7 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
 
-  // Wakeel message (no background)
+  // Wakeel message
   bubbleRowWakeel: {
     marginBottom: spacing.xl,
     paddingRight: 60,
@@ -606,7 +844,6 @@ const styles = StyleSheet.create({
     color: colors.onSurface,
     fontSize: 18,
     fontWeight: '300',
-    fontStyle: 'italic',
     marginBottom: 6,
   },
   emptySubtext: {

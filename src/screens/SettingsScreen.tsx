@@ -14,7 +14,7 @@ const owlLogo = require('../../assets/owl-logo.png');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
-import { getPairing, clearPairing, clearMessages } from '../storage';
+import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } from '../storage';
 import { PairingData, RootStackParamList } from '../types';
 
 type Props = {
@@ -90,6 +90,31 @@ export function SettingsScreen({ navigation }: Props) {
   useEffect(() => {
     getPairing().then(setPairing);
   }, []);
+
+  const handleClearMessages = () => {
+    Alert.alert(
+      'Clear Messages',
+      'Delete all chat history? This can\'t be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All',
+          style: 'destructive',
+          onPress: async () => {
+            // Clear legacy messages
+            await clearMessages();
+            // Clear all chat-scoped messages
+            const chats = await getChats();
+            for (const chat of chats) {
+              await clearChatMessages(chat.sessionKey);
+            }
+            Alert.alert('Done', 'All messages cleared.');
+            navigation.goBack();
+          },
+        },
+      ],
+    );
+  };
 
   const handleDisconnect = () => {
     Alert.alert(
@@ -192,8 +217,17 @@ export function SettingsScreen({ navigation }: Props) {
           </View>
         )}
 
-        {/* Disconnect */}
+        {/* Clear messages & Disconnect */}
         <View style={[styles.section, styles.sectionSpaced]}>
+          <SettingsRow
+            icon="🗑"
+            iconColor={colors.warning}
+            iconBg="rgba(243,156,18,0.1)"
+            title="Clear Messages"
+            subtitle="Delete Chat History"
+            onPress={handleClearMessages}
+          />
+          <View style={styles.rowDivider} />
           <SettingsRow
             icon="✕"
             iconColor={colors.error}
@@ -285,9 +319,7 @@ const styles = StyleSheet.create({
   headerBrand: {
     fontSize: 20,
     fontWeight: '300',
-    fontStyle: 'italic',
-    letterSpacing: 4,
-    textTransform: 'uppercase',
+    letterSpacing: 2,
     color: colors.primaryTextGold,
   },
   backButton: {
@@ -313,7 +345,6 @@ const styles = StyleSheet.create({
   heroTitle: {
     fontSize: 56,
     fontWeight: '700',
-    fontStyle: 'italic',
     color: colors.primaryTextGold,
     letterSpacing: -1,
     lineHeight: 60,
@@ -372,7 +403,6 @@ const styles = StyleSheet.create({
   rowTitle: {
     fontSize: 20,
     fontWeight: '300',
-    fontStyle: 'italic',
     color: colors.onSurface,
     letterSpacing: 0.2,
   },

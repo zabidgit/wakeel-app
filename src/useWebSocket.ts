@@ -1,4 +1,6 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
+import { AppState, AppStateStatus } from 'react-native';
+import * as Notifications from 'expo-notifications';
 import { ConnectionStatus, PairingData } from './types';
 
 export interface Attachment {
@@ -9,7 +11,7 @@ export interface Attachment {
 
 interface UseWebSocketReturn {
   status: ConnectionStatus;
-  send: (message: string, attachments?: Attachment[]) => void;
+  send: (message: string, attachments?: Attachment[], sessionKey?: string) => void;
   sendPushToken: (token: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
@@ -29,9 +31,46 @@ export function useWebSocket(): UseWebSocketReturn {
   const attemptRef = useRef(0);
   const [status, setStatus] = useState<ConnectionStatus>('disconnected');
 
+  // --- Throttle for streaming deltas (Issue 2) ---
+  const throttleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDeltaRef = useRef<string | null>(null);
+
+  const flushDelta = useCallback(() => {
+    if (pendingDeltaRef.current !== null && handlerRef.current) {
+      handlerRef.current(pendingDeltaRef.current, false);
+      pendingDeltaRef.current = null;
+    }
+    throttleTimerRef.current = null;
+  }, []);
+
+  const throttledDeltaHandler = useCallback((text: string) => {
+    pendingDeltaRef.current = text;
+    if (!throttleTimerRef.current) {
+      // Fire immediately on first delta, then throttle subsequent ones at ~50ms
+      flushDelta();
+      throttleTimerRef.current = setTimeout(flushDelta, 50);
+    }
+  }, [flushDelta]);
+
+  // --- AppState tracking for background notifications (Issue 3) ---
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
+
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      // Clear badge when app returns to foreground
+      if (nextState === 'active' && appStateRef.current !== 'active') {
+        Notifications.setBadgeCountAsync(0).catch(() => {});
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, []);
+
   const cleanup = useCallback(() => {
     if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
     if (healthRef.current) { clearInterval(healthRef.current); healthRef.current = null; }
+    if (throttleTimerRef.current) { clearTimeout(throttleTimerRef.current); throttleTimerRef.current = null; }
+    pendingDeltaRef.current = null;
     if (wsRef.current) {
       const ws = wsRef.current;
       wsRef.current = null;
@@ -102,10 +141,29 @@ export function useWebSocket(): UseWebSocketReturn {
           if (p.state === 'delta') {
             // Gateway sends accumulated text, not chunks — use = not +=
             streamRef.current = text;
-            handlerRef.current?.(streamRef.current, false);
+            // Throttled: batch rapid deltas into ~50ms UI updates
+            throttledDeltaHandler(streamRef.current);
           } else if (p.state === 'final') {
+            // Flush any pending delta before delivering final
+            if (throttleTimerRef.current) {
+              clearTimeout(throttleTimerRef.current);
+              throttleTimerRef.current = null;
+            }
+            pendingDeltaRef.current = null;
             streamRef.current = '';
             handlerRef.current?.(text, true);
+
+            // --- Background local notification (Issue 3) ---
+            if (appStateRef.current !== 'active') {
+              Notifications.scheduleNotificationAsync({
+                content: {
+                  title: 'Wakeel',
+                  body: text.length > 200 ? text.slice(0, 200) + '…' : text,
+                  sound: 'default',
+                },
+                trigger: null, // fire immediately
+              }).catch(() => {});
+            }
           }
         }
       } catch {}
@@ -117,6 +175,8 @@ export function useWebSocket(): UseWebSocketReturn {
       streamRef.current = '';
       wsRef.current = null;
       if (healthRef.current) { clearInterval(healthRef.current); healthRef.current = null; }
+      if (throttleTimerRef.current) { clearTimeout(throttleTimerRef.current); throttleTimerRef.current = null; }
+      pendingDeltaRef.current = null;
       if (pairingRef.current) {
         const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;
@@ -125,7 +185,7 @@ export function useWebSocket(): UseWebSocketReturn {
         }, delay);
       }
     };
-  }, [cleanup]);
+  }, [cleanup, throttledDeltaHandler]);
 
   const connect = useCallback((pairing: PairingData) => {
     pairingRef.current = pairing;
@@ -139,10 +199,10 @@ export function useWebSocket(): UseWebSocketReturn {
     setStatus('disconnected');
   }, [cleanup]);
 
-  const send = useCallback((message: string, attachments?: Attachment[]) => {
+  const send = useCallback((message: string, attachments?: Attachment[], sessionKey?: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
       const params: Record<string, unknown> = {
-        sessionKey: 'main',
+        sessionKey: sessionKey || 'main',
         message,
         idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       };
@@ -160,11 +220,16 @@ export function useWebSocket(): UseWebSocketReturn {
 
   const sendPushToken = useCallback((token: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      // Store Expo push token on gateway via operator.meta.set
+      // so the server can use it for push notifications later
       wsRef.current.send(JSON.stringify({
         type: 'req',
         id: nextId(),
-        method: 'device.registerPush',
-        params: { pushToken: token, platform: 'ios' },
+        method: 'operator.meta.set',
+        params: {
+          pushToken: token,
+          pushPlatform: 'expo',
+        },
       }));
     }
   }, []);

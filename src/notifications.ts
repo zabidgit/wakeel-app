@@ -46,6 +46,47 @@ export async function registerForPushNotifications(): Promise<string | null> {
   }
 }
 
+// Push server base URL (same as media upload server)
+const PUSH_SERVER_URL = 'https://app.getwakeel.app';
+const PUSH_AUTH_TOKEN = '2b8f265e6f5e8ac1f459e126582ba21dfff39a8b02bf5a2a';
+
+/**
+ * Register Expo push token with the push server so it can send
+ * true push notifications even when the app is fully closed.
+ */
+export async function registerTokenWithPushServer(
+  token: string,
+  deviceId?: string,
+): Promise<boolean> {
+  try {
+    const res = await fetch(`${PUSH_SERVER_URL}/push/register`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${PUSH_AUTH_TOKEN}`,
+      },
+      body: JSON.stringify({
+        token,
+        platform: 'expo',
+        deviceId: deviceId || 'ios-primary',
+      }),
+    });
+    const data = await res.json();
+    console.log('Push token registered with server:', data.ok);
+    return data.ok === true;
+  } catch (error) {
+    console.error('Failed to register push token with server:', error);
+    return false;
+  }
+}
+
+/** Clear the app badge count */
+export async function clearBadge(): Promise<void> {
+  try {
+    await Notifications.setBadgeCountAsync(0);
+  } catch {}
+}
+
 // Listener types for cleanup
 export function addNotificationReceivedListener(
   handler: (notification: Notifications.Notification) => void

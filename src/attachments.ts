@@ -19,13 +19,20 @@ export async function pickImage(): Promise<AttachmentResult | null> {
     allowsEditing: false,
     quality: 0.7,
     base64: true,
+    // Force JPEG output — avoids HEIC which servers can't decode
+    exif: false,
   });
 
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
-  const fileName = asset.fileName || `photo-${Date.now()}.jpg`;
-  const mimeType = asset.mimeType || 'image/jpeg';
+  // Always normalize to JPEG — Expo converts HEIC to JPEG for base64 but keeps the original mimeType
+  const isHEIC = (asset.mimeType || '').toLowerCase().includes('heic') ||
+                 (asset.fileName || '').toLowerCase().endsWith('.heic');
+  const fileName = isHEIC
+    ? (asset.fileName || `photo-${Date.now()}`).replace(/\.heic$/i, '.jpg')
+    : (asset.fileName || `photo-${Date.now()}.jpg`);
+  const mimeType = isHEIC ? 'image/jpeg' : (asset.mimeType || 'image/jpeg');
 
   return {
     uri: asset.uri,
