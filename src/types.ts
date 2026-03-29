@@ -3,6 +3,7 @@ export interface PairingData {
   token: string;
   name?: string;
   bootstrapToken?: string;
+  deviceToken?: string;
 }
 
 export interface Message {

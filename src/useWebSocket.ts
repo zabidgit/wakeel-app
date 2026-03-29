@@ -3,6 +3,9 @@ import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { ConnectionStatus, PairingData } from './types';
 import { loadOrCreateDeviceIdentity, signPayload, buildDeviceAuthPayloadV3, DeviceIdentity } from './deviceIdentity';
+import * as SecureStore from 'expo-secure-store';
+
+const DEVICE_TOKEN_KEY = 'wakeel_device_token';
 
 export interface Attachment {
   data: string;      // base64
@@ -84,12 +87,18 @@ export function useWebSocket(): UseWebSocketReturn {
     cleanup();
     setStatus('connecting');
 
-    // Load device identity BEFORE creating WebSocket so it's ready synchronously in onopen
+    // Load device identity + stored device token BEFORE creating WebSocket
     let identity: DeviceIdentity | null = null;
+    let storedDeviceToken: string | null = null;
     try {
       identity = await loadOrCreateDeviceIdentity();
     } catch {
-      // Continue without identity — will get read-only scopes
+      // Continue without identity
+    }
+    try {
+      storedDeviceToken = await SecureStore.getItemAsync(DEVICE_TOKEN_KEY);
+    } catch {
+      // No stored device token
     }
 
     const ws = new WebSocket(pairing.url);
@@ -99,13 +108,23 @@ export function useWebSocket(): UseWebSocketReturn {
       const scopes = ['operator.read', 'operator.write', 'operator.admin'];
       const signedAtMs = Date.now();
 
-      // Build connect params with device identity if available
+      // Use stored device token, or from pairing data, or bootstrap token
+      const authObj: Record<string, unknown> = { token: pairing.token };
+      if (storedDeviceToken) {
+        authObj.deviceToken = storedDeviceToken;
+      } else if (pairing.deviceToken) {
+        authObj.deviceToken = pairing.deviceToken;
+      }
+      if (pairing.bootstrapToken) {
+        authObj.bootstrapToken = pairing.bootstrapToken;
+      }
+
       const params: Record<string, unknown> = {
         minProtocol: 3,
         maxProtocol: 3,
         role: 'operator',
         scopes,
-        auth: { token: pairing.token, bootstrapToken: pairing.bootstrapToken },
+        auth: authObj,
         client: {
           id: 'openclaw-ios',
           mode: 'webchat',
@@ -158,8 +177,11 @@ export function useWebSocket(): UseWebSocketReturn {
       try {
         const data = JSON.parse(event.data);
 
-        // Connect success
+        // Connect success — capture device token for future reconnects
         if (data.type === 'res' && data.ok === true) {
+          if (data.auth?.deviceToken) {
+            SecureStore.setItemAsync(DEVICE_TOKEN_KEY, data.auth.deviceToken).catch(() => {});
+          }
           setStatus('connected');
           attemptRef.current = 0;
           return;
