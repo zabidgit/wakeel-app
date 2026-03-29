@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "65",
+      "buildNumber": "66",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -78,8 +78,7 @@
         {
           "microphonePermission": "Wakeel needs access to your microphone to send voice messages."
         }
-      ],
-      "expo-audio"
+      ]
     ]
   }
 }
