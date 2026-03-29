@@ -64,10 +64,10 @@ export function endSession(): Promise<void> {
       ws.send(JSON.stringify({
         type: 'req',
         id,
-        method: 'command.invoke',
+        method: 'chat.send',
         params: {
-          command: '/new',
           sessionKey: 'main',
+          message: '/new',
         },
       }));
     } catch {
