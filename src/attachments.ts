@@ -1,5 +1,6 @@
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 // @ts-ignore — expo-file-system/legacy exports are correct at runtime
 import { readAsStringAsync } from 'expo-file-system/legacy';
 
@@ -18,26 +19,29 @@ export async function pickImage(): Promise<AttachmentResult | null> {
     mediaTypes: ['images'],
     allowsEditing: false,
     quality: 0.7,
-    base64: true,
-    // Force JPEG output — avoids HEIC which servers can't decode
+    base64: false, // Don't get base64 yet — we'll convert first
     exif: false,
   });
 
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
-  // Always normalize to JPEG — Expo converts HEIC to JPEG for base64 but keeps the original mimeType
-  const isHEIC = (asset.mimeType || '').toLowerCase().includes('heic') ||
-                 (asset.fileName || '').toLowerCase().endsWith('.heic');
-  const fileName = isHEIC
-    ? (asset.fileName || `photo-${Date.now()}`).replace(/\.heic$/i, '.jpg')
-    : (asset.fileName || `photo-${Date.now()}.jpg`);
-  const mimeType = isHEIC ? 'image/jpeg' : (asset.mimeType || 'image/jpeg');
+
+  // Force convert to JPEG via expo-image-manipulator — guarantees no HEIC
+  const manipulated = await manipulateAsync(
+    asset.uri,
+    [], // no transforms, just re-encode
+    { compress: 0.7, format: SaveFormat.JPEG, base64: true }
+  );
+
+  const fileName = (asset.fileName || `photo-${Date.now()}`)
+    .replace(/\.(heic|heif)$/i, '.jpg')
+    .replace(/(?<!\.\w+)$/, '.jpg'); // ensure .jpg extension
 
   return {
-    uri: asset.uri,
-    base64: asset.base64 || '',
-    mimeType,
+    uri: manipulated.uri,
+    base64: manipulated.base64 || '',
+    mimeType: 'image/jpeg',
     fileName,
   };
 }
@@ -49,20 +53,25 @@ export async function takePhoto(): Promise<AttachmentResult | null> {
   const result = await ImagePicker.launchCameraAsync({
     allowsEditing: false,
     quality: 0.7,
-    base64: true,
+    base64: false,
   });
 
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
-  const fileName = asset.fileName || `camera-${Date.now()}.jpg`;
-  const mimeType = asset.mimeType || 'image/jpeg';
+
+  // Force convert to JPEG via expo-image-manipulator
+  const manipulated = await manipulateAsync(
+    asset.uri,
+    [],
+    { compress: 0.7, format: SaveFormat.JPEG, base64: true }
+  );
 
   return {
-    uri: asset.uri,
-    base64: asset.base64 || '',
-    mimeType,
-    fileName,
+    uri: manipulated.uri,
+    base64: manipulated.base64 || '',
+    mimeType: 'image/jpeg',
+    fileName: asset.fileName || `camera-${Date.now()}.jpg`,
   };
 }
 
