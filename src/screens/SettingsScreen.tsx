@@ -10,7 +10,10 @@ import {
   Platform,
   Image,
   Linking,
+  Clipboard,
 } from 'react-native';
+import { useTheme } from '../ThemeContext';
+import { getAccountInfo, getAccountToken, clearAccountToken, deleteAccount, createInvite } from '../auth';
 
 const owlLogo = require('../../assets/owl-logo.png');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -18,6 +21,9 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { colors, spacing } from '../theme';
 import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } from '../storage';
 import { PairingData, RootStackParamList } from '../types';
+
+const PROVISION_API_URL = 'https://app.getwakeel.app';
+const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'>;
@@ -87,11 +93,69 @@ function SettingsRow({
 
 export function SettingsScreen({ navigation }: Props) {
   const [pairing, setPairing] = useState<PairingData | null>(null);
+  const [accountInfo, setAccountInfo] = useState<Awaited<ReturnType<typeof getAccountInfo>>>(null);
+  const [accountToken, setAccountToken] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
+  const { mode, setMode } = useTheme();
 
   useEffect(() => {
     getPairing().then(setPairing);
+    getAccountInfo().then(setAccountInfo);
+    getAccountToken().then(setAccountToken);
   }, []);
+
+  const handleSignOut = () => {
+    Alert.alert(
+      'Sign Out',
+      'You\'ll need to sign in again to access your Wakeel.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await clearAccountToken();
+            navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+          },
+        },
+      ],
+    );
+  };
+
+  const handleThemeToggle = () => {
+    ActionSheetIOS.showActionSheetWithOptions(
+      {
+        title: 'Appearance',
+        options: ['Dark Mode', 'Night Mode (warm amber)', 'Cancel'],
+        cancelButtonIndex: 2,
+      },
+      (buttonIndex) => {
+        if (buttonIndex === 0) setMode('dark');
+        else if (buttonIndex === 1) setMode('night');
+      },
+    );
+  };
+
+  const handleInvite = async () => {
+    if (!accountToken) {
+      Alert.alert('Sign In Required', 'Please sign in to invite household members.');
+      return;
+    }
+    try {
+      const { inviteCode, expiresAt } = await createInvite(accountToken);
+      const expiry = new Date(expiresAt).toLocaleString();
+      Alert.alert(
+        'Invite Code',
+        `Share this code with a household member:\n\n${inviteCode}\n\nExpires: ${expiry}`,
+        [
+          { text: 'Copy Code', onPress: () => Clipboard.setString(inviteCode) },
+          { text: 'Done', style: 'cancel' },
+        ],
+      );
+    } catch (e: unknown) {
+      Alert.alert('Error', e instanceof Error ? e.message : 'Could not create invite.');
+    }
+  };
 
   const handleClearMessages = async () => {
     const chats = await getChats();
@@ -153,6 +217,47 @@ export function SettingsScreen({ navigation }: Props) {
           );
         }
       },
+    );
+  };
+
+  const handleCancelWakeel = () => {
+    Alert.alert(
+      'Cancel Wakeel',
+      'This will permanently delete your Wakeel and all your data. This cannot be undone.',
+      [
+        { text: 'Keep My Wakeel', style: 'cancel' },
+        {
+          text: 'Delete Forever',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              // Use account token if available (auth flow), otherwise direct API key
+              const tok = await getAccountToken();
+              if (tok) {
+                await deleteAccount(tok);
+              } else {
+                const clientId = pairing?.url
+                  ? new URL(pairing.url).hostname.split('.')[0]
+                  : null;
+                if (clientId) {
+                  await fetch(`${PROVISION_API_URL}/api/provision/${clientId}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${PROVISION_API_KEY}` },
+                  });
+                }
+              }
+            } catch { /* ignore server errors */ }
+
+            await clearAccountToken();
+            await clearPairing();
+            await clearMessages();
+            navigation.reset({
+              index: 0,
+              routes: [{ name: 'Auth' }],
+            });
+          },
+        },
+      ],
     );
   };
 
@@ -220,6 +325,54 @@ export function SettingsScreen({ navigation }: Props) {
           </Text>
         </View>
 
+        {/* Account section */}
+        {accountInfo && (
+          <View style={styles.section}>
+            <SettingsRow
+              icon={accountInfo.provider === 'apple' ? '🍎' : '🔵'}
+              iconColor={colors.onSurfaceVariant}
+              iconBg={colors.surfaceContainerHigh}
+              title={accountInfo.email || (accountInfo.provider === 'apple' ? 'Apple Account' : 'Google Account')}
+              subtitle={`Signed in with ${accountInfo.provider === 'apple' ? 'Apple' : 'Google'} · ${accountInfo.plan}`}
+            />
+            <View style={styles.rowDivider} />
+            <SettingsRow
+              icon="🚪"
+              iconColor="#FF9500"
+              iconBg="rgba(255,149,0,0.1)"
+              title="Sign Out"
+              subtitle="Return to Login Screen"
+              danger
+              onPress={handleSignOut}
+            />
+          </View>
+        )}
+
+        {/* Appearance section */}
+        <View style={[styles.section, accountInfo ? styles.sectionSpaced : undefined]}>
+          <SettingsRow
+            icon={mode === 'night' ? '🌙' : '🌑'}
+            iconColor={mode === 'night' ? '#FFB347' : colors.onSurfaceVariant}
+            iconBg={mode === 'night' ? 'rgba(255,179,71,0.1)' : colors.surfaceContainerHigh}
+            title="Appearance"
+            subtitle={mode === 'night' ? 'Night Mode (warm amber)' : 'Dark Mode'}
+            value={mode === 'night' ? 'Night' : 'Dark'}
+            onPress={handleThemeToggle}
+          />
+        </View>
+
+        {/* Household invite section */}
+        <View style={styles.section}>
+          <SettingsRow
+            icon="👨‍👩‍👦"
+            iconColor={colors.secondary}
+            iconBg="rgba(98,0,234,0.1)"
+            title="Invite a Member"
+            subtitle="Share Wakeel with Your Household"
+            onPress={handleInvite}
+          />
+        </View>
+
         {/* Connection section */}
         <View style={styles.section}>
           <SettingsRow
@@ -277,6 +430,19 @@ export function SettingsScreen({ navigation }: Props) {
             subtitle="Terminate Current Session"
             danger
             onPress={handleDisconnect}
+          />
+        </View>
+
+        {/* Cancel Wakeel — nuclear option */}
+        <View style={[styles.section, styles.sectionSpaced]}>
+          <SettingsRow
+            icon="🗑"
+            iconColor="#FF3B30"
+            iconBg="rgba(255,59,48,0.12)"
+            title="Cancel Wakeel"
+            subtitle="Delete Account & All Data"
+            danger
+            onPress={handleCancelWakeel}
           />
         </View>
 
