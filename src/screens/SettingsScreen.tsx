@@ -20,6 +20,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { spacing, getThemeColors } from '../theme';
 import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } from '../storage';
+import { endSession } from '../useWebSocket';
 import { PairingData, RootStackParamList } from '../types';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
@@ -306,6 +307,12 @@ export function SettingsScreen({ navigation }: Props) {
           text: 'Disconnect',
           style: 'destructive',
           onPress: async () => {
+            // Tell gateway to flush memory and end session before disconnecting
+            try {
+              await endSession();
+            } catch {
+              // Don't block disconnect if gateway is unreachable
+            }
             await clearAccountToken();
             await clearPairing();
             await clearMessages();

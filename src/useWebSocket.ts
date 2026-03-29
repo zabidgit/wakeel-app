@@ -17,11 +17,66 @@ interface UseWebSocketReturn {
   sendPushToken: (token: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
+  endSession: () => Promise<void>;
   onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
 }
 
 let reqId = 0;
 function nextId(): string { return `r${++reqId}`; }
+
+// Module-level ref so endSession can be called from screens without hook access
+let _wsRefGlobal: { current: WebSocket | null } = { current: null };
+let _pendingResponses: Map<string, { resolve: () => void; reject: (err: Error) => void }> = new Map();
+
+/**
+ * End the current session by sending /new command to the gateway.
+ * Flushes memory and resets session. Times out after 3 seconds.
+ * Safe to call from any screen — uses module-level WebSocket ref.
+ */
+export function endSession(): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ws = _wsRefGlobal.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      resolve(); // No connection — nothing to flush
+      return;
+    }
+
+    const id = nextId();
+    const timeout = setTimeout(() => {
+      _pendingResponses.delete(id);
+      resolve(); // Timeout — don't block disconnect
+    }, 3000);
+
+    _pendingResponses.set(id, {
+      resolve: () => {
+        clearTimeout(timeout);
+        _pendingResponses.delete(id);
+        resolve();
+      },
+      reject: (err: Error) => {
+        clearTimeout(timeout);
+        _pendingResponses.delete(id);
+        resolve(); // Resolve anyway — don't block disconnect on errors
+      },
+    });
+
+    try {
+      ws.send(JSON.stringify({
+        type: 'req',
+        id,
+        method: 'command.invoke',
+        params: {
+          command: '/new',
+          sessionKey: 'main',
+        },
+      }));
+    } catch {
+      clearTimeout(timeout);
+      _pendingResponses.delete(id);
+      resolve(); // Send failed — don't block disconnect
+    }
+  });
+}
 
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
@@ -65,6 +120,7 @@ export function useWebSocket(): UseWebSocketReturn {
     if (wsRef.current) {
       const ws = wsRef.current;
       wsRef.current = null;
+      _wsRefGlobal.current = null;
       ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null;
       try { ws.close(); } catch {}
     }
@@ -76,6 +132,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
     const ws = new WebSocket(pairing.url);
     wsRef.current = ws;
+    _wsRefGlobal.current = ws;
 
     ws.onopen = () => {
       try {
@@ -132,6 +189,17 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+
+        // Handle pending responses (e.g. endSession acknowledgement)
+        if (data.type === 'res' && data.id && _pendingResponses.has(data.id)) {
+          const pending = _pendingResponses.get(data.id)!;
+          if (data.ok === true || data.ok === undefined) {
+            pending.resolve();
+          } else {
+            pending.reject(new Error(data.error?.message || 'Request failed'));
+          }
+          // Don't return — let connect success also be handled below
+        }
 
         // Connect success
         if (data.type === 'res' && data.ok === true) {
@@ -269,5 +337,5 @@ export function useWebSocket(): UseWebSocketReturn {
 
   useEffect(() => { return () => cleanup(); }, [cleanup]);
 
-  return { status, send, sendPushToken, connect, disconnect, onMessage };
+  return { status, send, sendPushToken, connect, disconnect, endSession, onMessage };
 }
