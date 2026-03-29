@@ -306,11 +306,12 @@ export function SettingsScreen({ navigation }: Props) {
           text: 'Disconnect',
           style: 'destructive',
           onPress: async () => {
+            await clearAccountToken();
             await clearPairing();
             await clearMessages();
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Pairing' }],
+              routes: [{ name: 'Auth' }],
             });
           },
         },

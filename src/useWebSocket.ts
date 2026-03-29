@@ -50,23 +50,12 @@ export function useWebSocket(): UseWebSocketReturn {
     if (!throttleTimerRef.current) {
       // Fire immediately on first delta, then throttle at ~16ms (~60fps)
       flushDelta();
-      throttleTimerRef.current = setTimeout(flushDelta, 16);
+      throttleTimerRef.current = setTimeout(flushDelta, 120);
     }
   }, [flushDelta]);
 
   // --- AppState tracking for background notifications (Issue 3) ---
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState) => {
-      // Clear badge when app returns to foreground
-      if (nextState === 'active' && appStateRef.current !== 'active') {
-        Notifications.setBadgeCountAsync(0).catch(() => {});
-      }
-      appStateRef.current = nextState;
-    });
-    return () => sub.remove();
-  }, []);
 
   const cleanup = useCallback(() => {
     if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
@@ -209,6 +198,23 @@ export function useWebSocket(): UseWebSocketReturn {
       }
     };
   }, [cleanup, throttledDeltaHandler]);
+
+  // --- AppState listener: reconnect WebSocket when returning from background ---
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && appStateRef.current !== 'active') {
+        // Clear badge when app returns to foreground
+        Notifications.setBadgeCountAsync(0).catch(() => {});
+        // Reconnect WebSocket if it dropped while backgrounded
+        if (wsRef.current?.readyState !== WebSocket.OPEN && pairingRef.current) {
+          attemptRef.current = 0;
+          doConnect(pairingRef.current);
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [doConnect]);
 
   const connect = useCallback((pairing: PairingData) => {
     pairingRef.current = pairing;
