@@ -2,6 +2,7 @@ export interface PairingData {
   url: string;
   token: string;
   name?: string;
+  bootstrapToken?: string;
 }
 
 export interface Message {

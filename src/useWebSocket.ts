@@ -100,20 +100,13 @@ export function useWebSocket(): UseWebSocketReturn {
           maxProtocol: 3,
           role: 'operator',
           scopes,
-          auth: { token: pairing.token },
+          auth: { token: pairing.token, bootstrapToken: pairing.bootstrapToken },
           client: {
             id: 'openclaw-ios',
             mode: 'webchat',
             platform: 'ios',
             version: '1.0.0',
             deviceFamily: 'phone',
-          },
-          device: {
-            id: 'webchat-auto',
-            publicKey: '',
-            signature: '',
-            signedAt: Date.now(),
-            nonce: '',
           },
         },
       }));
