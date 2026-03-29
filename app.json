@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wakeel",
     "slug": "wakeel",
-    "version": "1.0.2",
+    "version": "1.0.1",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
@@ -22,9 +22,12 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "72",
+      "buildNumber": "73",
       "entitlements": {
-        "aps-environment": "production"
+        "aps-environment": "production",
+        "com.apple.developer.applesignin": [
+          "Default"
+        ]
       }
     },
     "android": {
@@ -40,7 +43,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "googleClientIdIos": "916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922.apps.googleusercontent.com",
+      "googleClientIdIos": "",
       "eas": {
         "projectId": "621af8c4-fdbd-492d-bf22-2db15c196ebe"
       }
@@ -67,7 +70,9 @@
           "cameraPermission": "Wakeel needs access to your camera to take photos."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-web-browser",
+      "expo-apple-authentication"
     ]
   }
 }
