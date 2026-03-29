@@ -6,7 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
     "splash": {
       "image": "./assets/splash-icon-new.png",
       "resizeMode": "contain",
@@ -22,12 +22,9 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "67",
+      "buildNumber": "68",
       "entitlements": {
-        "aps-environment": "production",
-        "com.apple.developer.applesignin": [
-          "Default"
-        ]
+        "aps-environment": "production"
       }
     },
     "android": {
@@ -70,15 +67,7 @@
           "cameraPermission": "Wakeel needs access to your camera to take photos."
         }
       ],
-      "expo-document-picker",
-      "expo-web-browser",
-      "expo-apple-authentication",
-      [
-        "expo-audio",
-        {
-          "microphonePermission": "Wakeel needs access to your microphone to send voice messages."
-        }
-      ]
+      "expo-document-picker"
     ]
   }
 }
