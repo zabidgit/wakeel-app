@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "81",
+      "buildNumber": "83",
       "entitlements": {
         "aps-environment": "production"
       }
