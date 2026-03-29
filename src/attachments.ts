@@ -2,7 +2,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 // @ts-ignore — expo-file-system/legacy exports are correct at runtime
 import { readAsStringAsync } from 'expo-file-system/legacy';
-import { Audio } from 'expo-av';
+import { AudioModule, RecordingPresets, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
 
 export interface AttachmentResult {
@@ -118,45 +118,24 @@ export interface RecordingHandle {
 
 export async function startRecording(): Promise<RecordingHandle | null> {
   try {
-    const { status } = await Audio.requestPermissionsAsync();
-    if (status !== 'granted') return null;
+    const status = await AudioModule.requestRecordingPermissionsAsync();
+    if (!status.granted) return null;
 
-    await Audio.setAudioModeAsync({
-      allowsRecordingIOS: true,
-      playsInSilentModeIOS: true,
+    await setAudioModeAsync({
+      playsInSilentMode: true,
+      allowsRecording: true,
     });
 
-    const recording = new Audio.Recording();
-    await recording.prepareToRecordAsync({
-      android: {
-        extension: '.m4a',
-        outputFormat: 2, // MPEG_4
-        audioEncoder: 3, // AAC
-        sampleRate: 16000,
-        numberOfChannels: 1,
-        bitRate: 64000,
-      },
-      ios: {
-        extension: '.m4a',
-        outputFormat: 'aac',
-        audioQuality: 96,
-        sampleRate: 16000,
-        numberOfChannels: 1,
-        bitRate: 64000,
-        linearPCMBitDepth: 16,
-        linearPCMIsBigEndian: false,
-        linearPCMIsFloat: false,
-      },
-      web: {},
-    });
-    await recording.startAsync();
+    const recorder = new AudioModule.AudioRecorder(RecordingPresets.HIGH_QUALITY);
+    await recorder.prepareToRecordAsync();
+    recorder.record();
 
     return {
       stop: async () => {
         try {
-          await recording.stopAndUnloadAsync();
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-          const uri = recording.getURI();
+          await recorder.stop();
+          await setAudioModeAsync({ allowsRecording: false });
+          const uri = recorder.uri;
           if (!uri) return null;
           const base64 = await FileSystem.readAsStringAsync(uri, {
             encoding: 'base64' as any,
@@ -171,9 +150,9 @@ export async function startRecording(): Promise<RecordingHandle | null> {
       },
       cancel: async () => {
         try {
-          await recording.stopAndUnloadAsync();
-          await Audio.setAudioModeAsync({ allowsRecordingIOS: false });
-          const uri = recording.getURI();
+          await recorder.stop();
+          await setAudioModeAsync({ allowsRecording: false });
+          const uri = recorder.uri;
           if (uri) await FileSystem.deleteAsync(uri, { idempotent: true });
         } catch {}
       },
