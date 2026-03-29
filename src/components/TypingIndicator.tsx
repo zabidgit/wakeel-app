@@ -1,8 +1,12 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import { View, Text, Animated, StyleSheet } from 'react-native';
-import { colors } from '../theme';
+import { useTheme } from '../ThemeContext';
+import { getThemeColors } from '../theme';
 
 export function TypingIndicator() {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const dot1 = useRef(new Animated.Value(0)).current;
   const dot2 = useRef(new Animated.Value(0)).current;
   const dot3 = useRef(new Animated.Value(0)).current;
@@ -53,7 +57,7 @@ export function TypingIndicator() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',

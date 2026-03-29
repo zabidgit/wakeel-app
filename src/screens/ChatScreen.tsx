@@ -17,7 +17,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing } from '../theme';
+import { spacing, getThemeColors } from '../theme';
+import { useTheme } from '../ThemeContext';
 import {
   getPairing,
   saveMessages,
@@ -70,6 +71,8 @@ function dedupeAndSort(msgs: Message[]): Message[] {
 // ─── Status Dot ───────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: ConnectionStatus }) {
+  const { colors } = useTheme();
+
   const dotColor =
     status === 'connected' ? colors.success :
     status === 'connecting' ? colors.primaryGold :
@@ -79,6 +82,8 @@ function StatusDot({ status }: { status: ConnectionStatus }) {
     status === 'connected' ? 'Connected' :
     status === 'connecting' ? 'Connecting...' :
     'Disconnected';
+
+  const styles = useMemo(() => createStatusDotStyles(colors), [colors]);
 
   return (
     <View style={styles.statusRow}>
@@ -98,6 +103,8 @@ function formatTime(timestamp: number): string {
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createBubbleStyles(colors), [colors]);
   const isUser = message.sender === 'user';
 
   if (isUser) {
@@ -154,6 +161,9 @@ const CHAT_EMOJIS = ['💬', '🏠', '🏥', '💼', '📚', '🎯', '🛒', '�
 // ─── Chat Screen ──────────────────────────────────────────────────────────────
 
 export function ChatScreen({ navigation }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
@@ -293,7 +303,7 @@ export function ChatScreen({ navigation }: Props) {
     }
   }, [messages.length, streamingMessage]);
 
-  // ─── Reload messages when returning from Settings (e.g. after clear chat) ──
+  // ─── Reload messages when returning from Settings ──
   useFocusEffect(
     React.useCallback(() => {
       const reload = async () => {
@@ -308,7 +318,6 @@ export function ChatScreen({ navigation }: Props) {
   // ─── Chat switching ───────────────────────────────────────────────────────
 
   const switchChat = useCallback(async (chat: ChatInfo) => {
-    // Save current messages first
     if (activeChat) {
       await saveChatMessages(activeChat.sessionKey, messages);
     }
@@ -317,12 +326,10 @@ export function ChatScreen({ navigation }: Props) {
     activeChatRef.current = chat;
     setSidebarVisible(false);
 
-    // Clear streaming state
     setStreamingMessage(null);
     streamingMsgId.current = null;
     setIsTyping(false);
 
-    // Load new chat's messages
     const chatMsgs = await getChatMessages(chat.sessionKey);
     setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
   }, [activeChat, messages]);
@@ -339,7 +346,6 @@ export function ChatScreen({ navigation }: Props) {
             if (!name?.trim()) return;
             const id = `chat-${Date.now()}`;
             const sessionKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            // Pick a random emoji from the list
             const emoji = CHAT_EMOJIS[Math.floor(Math.random() * CHAT_EMOJIS.length)];
             const newChat: ChatInfo = {
               id,
@@ -360,7 +366,7 @@ export function ChatScreen({ navigation }: Props) {
   }, [chats, switchChat]);
 
   const handleDeleteChat = useCallback(async (chat: ChatInfo) => {
-    if (chat.sessionKey === 'main') return; // Can't delete General
+    if (chat.sessionKey === 'main') return;
 
     Alert.alert(
       'Delete Chat',
@@ -376,7 +382,6 @@ export function ChatScreen({ navigation }: Props) {
             await saveChats(updated);
             await clearChatMessages(chat.sessionKey);
 
-            // If deleting the active chat, switch to General
             if (activeChat?.id === chat.id) {
               const general = updated.find(c => c.sessionKey === 'main') || updated[0];
               switchChat(general);
@@ -466,11 +471,9 @@ export function ChatScreen({ navigation }: Props) {
     setPendingAttachment(null);
     setIsTyping(true);
 
-    // Use active chat's sessionKey for sending
     const sessionKey = activeChat?.sessionKey || 'main';
 
     if (attachment) {
-      // Upload to provisioning server (app.getwakeel.app/upload), auth with client gateway token
       const uploaded = pairingData
         ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
         : null;
@@ -641,87 +644,9 @@ export function ChatScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  flex: {
-    flex: 1,
-  },
+// ─── Style factories ──────────────────────────────────────────────────────────
 
-  // Nebula glows
-  nebulaTop: {
-    position: 'absolute',
-    top: -60,
-    left: -60,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: colors.primaryGold,
-    opacity: 0.04,
-  },
-  nebulaBottom: {
-    position: 'absolute',
-    bottom: -60,
-    right: -40,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: colors.secondaryContainer,
-    opacity: 0.08,
-  },
-
-  // Header
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    backgroundColor: 'rgba(5,5,5,0.85)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.outlineVariant,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  hamburgerButton: {
-    padding: 4,
-    marginRight: 2,
-  },
-  hamburgerIcon: {
-    fontSize: 20,
-    color: colors.outline,
-  },
-  logoMini: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.surfaceContainerHighest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineVariant,
-  },
-  logoMiniImg: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-  },
-  headerTitleGroup: {
-    gap: 2,
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '300',
-    letterSpacing: 2,
-    color: colors.primaryTextGold,
-  },
+const createStatusDotStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -738,30 +663,9 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  settingsButton: {
-    padding: spacing.sm,
-  },
-  settingsIcon: {
-    fontSize: 20,
-    color: colors.outline,
-  },
+});
 
-  // Connection banner container
-  bannerContainer: {
-    position: 'relative',
-    zIndex: 10,
-  },
-
-  // Message list
-  messageListContainer: {
-    flex: 1,
-  },
-  messageList: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
-    flexGrow: 1,
-  },
-
+const createBubbleStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   // User bubble
   bubbleRowUser: {
     flexDirection: 'row',
@@ -838,6 +742,112 @@ const styles = StyleSheet.create({
     letterSpacing: 1,
     textTransform: 'uppercase',
     paddingLeft: 2,
+  },
+});
+
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  flex: {
+    flex: 1,
+  },
+
+  // Nebula glows
+  nebulaTop: {
+    position: 'absolute',
+    top: -60,
+    left: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: colors.primaryGold,
+    opacity: 0.04,
+  },
+  nebulaBottom: {
+    position: 'absolute',
+    bottom: -60,
+    right: -40,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: colors.secondaryContainer,
+    opacity: 0.08,
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.outlineVariant,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  hamburgerButton: {
+    padding: 4,
+    marginRight: 2,
+  },
+  hamburgerIcon: {
+    fontSize: 20,
+    color: colors.outline,
+  },
+  logoMini: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceContainerHighest,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+  },
+  logoMiniImg: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+  },
+  headerTitleGroup: {
+    gap: 2,
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '300',
+    letterSpacing: 2,
+    color: colors.primaryTextGold,
+  },
+  settingsButton: {
+    padding: spacing.sm,
+  },
+  settingsIcon: {
+    fontSize: 20,
+    color: colors.outline,
+  },
+
+  // Connection banner container
+  bannerContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+
+  // Message list
+  messageListContainer: {
+    flex: 1,
+  },
+  messageList: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
+    flexGrow: 1,
   },
 
   // Empty state
@@ -920,7 +930,7 @@ const styles = StyleSheet.create({
   inputBar: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    backgroundColor: 'rgba(5,5,5,0.92)',
+    backgroundColor: colors.surface,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.outlineVariant,
   },

@@ -1,7 +1,7 @@
-// Wakeel Design System — Dark Luxury Theme
+// Wakeel Design System — Multi-Theme
 // Based on Material Design 3 color scheme
 
-export type ThemeMode = 'dark' | 'night';
+export type ThemeMode = 'dark' | 'night' | 'light';
 
 const darkColors = {
   // Core backgrounds
@@ -77,8 +77,56 @@ const nightColors = {
   white: '#f2e2d0',
 };
 
+// Light mode — premium iOS feel
+const lightColors = {
+  // Core backgrounds
+  background: '#F5F5F7',
+  surface: '#FFFFFF',
+  surfaceContainer: '#F0F0F2',
+  surfaceContainerHigh: '#E8E8EA',
+  surfaceContainerHighest: '#DDDDE0',
+  surfaceContainerLow: '#F8F8FA',
+  surfaceContainerLowest: '#FFFFFF',
+
+  // Gold (darker for white bg contrast)
+  primaryGold: '#B8860B',
+  primaryTextGold: '#8B6914',
+  primaryGoldDim: '#A0750A',
+
+  // Text
+  onSurface: '#1A1A1A',
+  onSurfaceVariant: '#555555',
+  outline: '#999999',
+  outlineVariant: '#E0E0E0',
+
+  // Status
+  error: '#D32F2F',
+  errorContainer: '#FFCDD2',
+  success: '#2E7D32',
+  warning: '#F57F17',
+
+  // Secondary (purple accent)
+  secondary: '#7C4DFF',
+  secondaryContainer: '#EDE7F6',
+
+  // Legacy aliases
+  gold: '#B8860B',
+  goldLight: '#8B6914',
+  goldDark: '#A0750A',
+  black: '#1A1A1A',
+  darkGray: '#F0F0F2',
+  mediumGray: '#E8E8EA',
+  cream: '#1A1A1A',
+  creamDark: '#555555',
+  white: '#1A1A1A',
+  textLight: '#999999',
+  textMuted: '#999999',
+};
+
 export function getThemeColors(mode: ThemeMode) {
-  return mode === 'night' ? nightColors : darkColors;
+  if (mode === 'night') return nightColors;
+  if (mode === 'light') return lightColors;
+  return darkColors;
 }
 
 // Default export — dark theme (backward compat for screens that import colors directly)

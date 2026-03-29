@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,9 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors, spacing } from '../theme';
+import { spacing } from '../theme';
+import { getThemeColors } from '../theme';
+import { useTheme } from '../ThemeContext';
 
 const owlLogo = require('../../assets/owl-logo.png');
 import { savePairing } from '../storage';
@@ -24,6 +26,9 @@ type Props = {
 };
 
 export function PairingScreen({ navigation }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [code, setCode] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -158,7 +163,7 @@ export function PairingScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   root: {
     flex: 1,
     backgroundColor: colors.background,

@@ -1,12 +1,15 @@
-import React, { useEffect, useRef } from 'react';
-import { Animated, Text, StyleSheet } from 'react-native';
-import { colors } from '../theme';
+import React, { useEffect, useRef, useMemo } from 'react';
+import { Animated, StyleSheet } from 'react-native';
+import { useTheme } from '../ThemeContext';
+import { getThemeColors } from '../theme';
 
 /**
  * Blinking cursor shown at the end of a streaming AI message.
  */
 export function StreamingCursor() {
+  const { colors } = useTheme();
   const opacity = useRef(new Animated.Value(1)).current;
+  const styles = useMemo(() => createStyles(colors), [colors]);
 
   useEffect(() => {
     const anim = Animated.loop(
@@ -24,7 +27,7 @@ export function StreamingCursor() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   cursor: {
     color: colors.primaryTextGold,
     fontSize: 15,
