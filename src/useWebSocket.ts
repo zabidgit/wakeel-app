@@ -68,6 +68,7 @@ export function endSession(): Promise<void> {
         params: {
           sessionKey: 'main',
           message: '/new',
+          idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
         },
       }));
     } catch {
