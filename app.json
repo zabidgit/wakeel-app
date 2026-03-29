@@ -12,6 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#050505"
     },
+    "scheme": "com.getwakeel.app",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.getwakeel.app",
@@ -22,9 +23,12 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "83",
+      "buildNumber": "84",
       "entitlements": {
-        "aps-environment": "production"
+        "aps-environment": "production",
+        "com.apple.developer.applesignin": [
+          "Default"
+        ]
       }
     },
     "android": {
@@ -66,7 +70,14 @@
           "cameraPermission": "Wakeel needs access to your camera to take photos."
         }
       ],
-      "expo-document-picker"
+      "expo-document-picker",
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922"
+        }
+      ]
     ]
   }
 }
