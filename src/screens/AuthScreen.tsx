@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -8,11 +8,9 @@ import {
   Alert,
   Image,
   Platform,
+  Linking,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import * as Google from 'expo-auth-session/providers/google';
-import { makeRedirectUri } from 'expo-auth-session';
-import Constants from 'expo-constants';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 import { colors, spacing } from '../theme';
@@ -23,9 +21,7 @@ import {
   saveAccountInfo,
   fetchAccountAndPairing,
 } from '../auth';
-import { savePairing, getPairing } from '../storage';
-
-// Note: expo-web-browser maybeCompleteAuthSession is handled internally by expo-auth-session on mobile
+import { savePairing } from '../storage';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -35,31 +31,42 @@ type Props = {
 
 export function AuthScreen({ navigation }: Props) {
   const [loadingGoogle, setLoadingGoogle] = useState(false);
+  const mountedRef = useRef(true);
 
-  const googleClientId = Constants.expoConfig?.extra?.googleClientIdIos || '';
-
-  const [, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
-    iosClientId: googleClientId || undefined,
-    redirectUri: makeRedirectUri({ scheme: 'com.getwakeel.app', path: 'auth' }),
-  });
-
-  // Handle Google OAuth response
   useEffect(() => {
-    if (googleResponse?.type === 'success') {
-      const idToken = googleResponse.authentication?.idToken;
-      if (idToken) {
-        handleGoogleServerAuth(idToken);
+    mountedRef.current = true;
+
+    // Listen for deep-link callback from Google OAuth
+    const handleUrl = ({ url }: { url: string }) => {
+      if (!url) return;
+      // Expected: com.getwakeel.app://auth?id_token=...
+      const match = url.match(/[?&]id_token=([^&]+)/);
+      if (match && match[1]) {
+        handleGoogleServerAuth(decodeURIComponent(match[1]));
       } else {
-        setLoadingGoogle(false);
-        Alert.alert('Sign In Failed', 'Could not get Google ID token. Please try again.');
+        // Check for code-based flow
+        const codeMatch = url.match(/[?&]code=([^&]+)/);
+        if (codeMatch) {
+          // Server-side exchange needed
+          handleGoogleCodeExchange(decodeURIComponent(codeMatch[1]));
+        } else if (mountedRef.current) {
+          setLoadingGoogle(false);
+        }
       }
-    } else if (googleResponse?.type === 'error') {
-      setLoadingGoogle(false);
-      Alert.alert('Sign In Failed', googleResponse.error?.message || 'Google sign-in failed.');
-    } else if (googleResponse?.type === 'dismiss') {
-      setLoadingGoogle(false);
-    }
-  }, [googleResponse]);
+    };
+
+    const sub = Linking.addEventListener('url', handleUrl);
+
+    // Check if app was opened from a deep link
+    Linking.getInitialURL().then((url) => {
+      if (url) handleUrl({ url });
+    });
+
+    return () => {
+      mountedRef.current = false;
+      sub.remove();
+    };
+  }, []);
 
   async function handleGoogleServerAuth(idToken: string) {
     try {
@@ -68,7 +75,26 @@ export function AuthScreen({ navigation }: Props) {
       await saveAccountInfo(result.account);
       await navigateAfterAuth(result.accountToken, result.isNewUser);
     } catch (e: unknown) {
-      setLoadingGoogle(false);
+      if (mountedRef.current) setLoadingGoogle(false);
+      Alert.alert('Sign In Failed', e instanceof Error ? e.message : 'Google sign-in failed.');
+    }
+  }
+
+  async function handleGoogleCodeExchange(code: string) {
+    try {
+      // Exchange auth code on our server
+      const resp = await fetch('https://app.getwakeel.app/api/auth/google/exchange', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code, redirectUri: 'com.getwakeel.app://auth' }),
+      });
+      if (!resp.ok) throw new Error('Code exchange failed');
+      const result = await resp.json();
+      await saveAccountToken(result.accountToken);
+      await saveAccountInfo(result.account);
+      await navigateAfterAuth(result.accountToken, result.isNewUser);
+    } catch (e: unknown) {
+      if (mountedRef.current) setLoadingGoogle(false);
       Alert.alert('Sign In Failed', e instanceof Error ? e.message : 'Google sign-in failed.');
     }
   }
@@ -78,14 +104,12 @@ export function AuthScreen({ navigation }: Props) {
       navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken } }] });
       return;
     }
-    // Returning user — check if they have a provisioned container
     try {
       const { pairing } = await fetchAccountAndPairing(accountToken);
       if (pairing) {
         await savePairing(pairing);
         navigation.reset({ index: 0, routes: [{ name: 'Chat' }] });
       } else {
-        // Logged in but not provisioned yet
         navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken } }] });
       }
     } catch {
@@ -94,19 +118,32 @@ export function AuthScreen({ navigation }: Props) {
   }
 
   const handleAppleSignIn = async () => {
-    // Apple Sign-In requires expo-apple-authentication native module.
-    // This will be available in a future build with the entitlement enabled.
     Alert.alert('Coming Soon', 'Apple Sign-In will be available in the next update.');
   };
 
   const handleGoogleSignIn = async () => {
     if (loadingGoogle) return;
-    if (!googleClientId) {
-      Alert.alert('Coming Soon', 'Google sign-in will be available soon.');
-      return;
-    }
     setLoadingGoogle(true);
-    promptGoogleAsync();
+
+    // Build Google OAuth URL manually
+    const clientId = '916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922.apps.googleusercontent.com';
+    const redirectUri = 'com.getwakeel.app://auth';
+    const scope = encodeURIComponent('openid email profile');
+    const responseType = 'code';
+    const url = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&response_type=${responseType}&scope=${scope}`;
+
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        setLoadingGoogle(false);
+        Alert.alert('Error', 'Cannot open Google sign-in.');
+      }
+    } catch {
+      setLoadingGoogle(false);
+      Alert.alert('Error', 'Failed to open Google sign-in.');
+    }
   };
 
   const handleManualConnect = () => {
@@ -115,12 +152,10 @@ export function AuthScreen({ navigation }: Props) {
 
   return (
     <View style={styles.container}>
-      {/* Nebula glows */}
       <View style={styles.nebulaTop} />
       <View style={styles.nebulaBottom} />
 
       <SafeAreaView style={styles.safeArea}>
-        {/* Logo */}
         <View style={styles.logoSection}>
           <View style={styles.logoRing}>
             <Image source={owlLogo} style={styles.logoImage} />
@@ -130,9 +165,7 @@ export function AuthScreen({ navigation }: Props) {
           <Text style={styles.tagline}>Your personal AI agent</Text>
         </View>
 
-        {/* Buttons */}
         <View style={styles.buttonSection}>
-          {/* Apple Sign In (stub — native module not available in this build) */}
           <TouchableOpacity
             style={[styles.appleButtonFallback]}
             onPress={handleAppleSignIn}
@@ -142,7 +175,6 @@ export function AuthScreen({ navigation }: Props) {
             <Text style={styles.appleButtonText}>Sign in with Apple</Text>
           </TouchableOpacity>
 
-          {/* Google Sign In */}
           <TouchableOpacity
             style={[styles.googleButton, loadingGoogle && styles.buttonLoading]}
             onPress={handleGoogleSignIn}
@@ -159,14 +191,12 @@ export function AuthScreen({ navigation }: Props) {
             )}
           </TouchableOpacity>
 
-          {/* Divider */}
           <View style={styles.divider}>
             <View style={styles.dividerLine} />
             <Text style={styles.dividerText}>or</Text>
             <View style={styles.dividerLine} />
           </View>
 
-          {/* Manual connect */}
           <TouchableOpacity
             style={styles.manualButton}
             onPress={handleManualConnect}
@@ -177,7 +207,6 @@ export function AuthScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerText}>
             By continuing, you agree to our{' '}
@@ -190,177 +219,30 @@ export function AuthScreen({ navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  safeArea: {
-    flex: 1,
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-  },
-
-  nebulaTop: {
-    position: 'absolute',
-    top: -120,
-    left: -100,
-    width: 380,
-    height: 380,
-    borderRadius: 190,
-    backgroundColor: colors.secondaryContainer,
-    opacity: 0.08,
-  },
-  nebulaBottom: {
-    position: 'absolute',
-    bottom: -100,
-    right: -80,
-    width: 320,
-    height: 320,
-    borderRadius: 160,
-    backgroundColor: colors.primaryGold,
-    opacity: 0.07,
-  },
-
-  // Logo section
-  logoSection: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  logoRing: {
-    width: 96,
-    height: 96,
-    borderRadius: 28,
-    backgroundColor: colors.surfaceContainerHigh,
-    borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: spacing.sm,
-    shadowColor: colors.primaryGold,
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.15,
-    shadowRadius: 24,
-  },
-  logoImage: {
-    width: 64,
-    height: 64,
-    borderRadius: 16,
-  },
-  brandName: {
-    fontSize: 40,
-    fontWeight: '200',
-    letterSpacing: 6,
-    color: colors.primaryTextGold,
-  },
-  brandArabic: {
-    fontSize: 18,
-    fontWeight: '300',
-    letterSpacing: 4,
-    color: colors.onSurfaceVariant,
-    opacity: 0.6,
-  },
-  tagline: {
-    fontSize: 12,
-    fontWeight: '300',
-    color: colors.outline,
-    letterSpacing: 3,
-    textTransform: 'uppercase',
-    marginTop: spacing.xs,
-  },
-
-  // Buttons
-  buttonSection: {
-    gap: spacing.sm,
-    paddingBottom: spacing.md,
-  },
-  appleButtonFallback: {
-    height: 52,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-  },
-  appleIcon: {
-    fontSize: 16,
-    color: '#000',
-  },
-  appleButtonText: {
-    color: '#000',
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  googleButton: {
-    height: 52,
-    backgroundColor: '#fff',
-    borderRadius: 14,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(0,0,0,0.08)',
-  },
-  googleG: {
-    fontSize: 18,
-    fontWeight: '700',
-    color: '#4285F4',
-    fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif',
-  },
-  googleButtonText: {
-    color: '#333',
-    fontSize: 15,
-    fontWeight: '600',
-    letterSpacing: 0.3,
-  },
-  buttonLoading: {
-    opacity: 0.5,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: spacing.xs,
-    gap: spacing.sm,
-  },
-  dividerLine: {
-    flex: 1,
-    height: StyleSheet.hairlineWidth,
-    backgroundColor: colors.outlineVariant,
-  },
-  dividerText: {
-    color: colors.outline,
-    fontSize: 11,
-    letterSpacing: 2,
-    textTransform: 'uppercase',
-  },
-  manualButton: {
-    alignItems: 'center',
-    paddingVertical: spacing.sm,
-  },
-  manualButtonText: {
-    color: colors.outline,
-    fontSize: 13,
-    letterSpacing: 1,
-    textDecorationLine: 'underline',
-  },
-
-  // Footer
-  footer: {
-    alignItems: 'center',
-    paddingBottom: spacing.md,
-  },
-  footerText: {
-    fontSize: 11,
-    color: colors.outline,
-    opacity: 0.6,
-    letterSpacing: 0.3,
-    textAlign: 'center',
-  },
-  footerLink: {
-    textDecorationLine: 'underline',
-  },
+  container: { flex: 1, backgroundColor: colors.background },
+  safeArea: { flex: 1, justifyContent: 'space-between', paddingHorizontal: spacing.lg },
+  nebulaTop: { position: 'absolute', top: -120, left: -100, width: 380, height: 380, borderRadius: 190, backgroundColor: colors.secondaryContainer, opacity: 0.08 },
+  nebulaBottom: { position: 'absolute', bottom: -100, right: -80, width: 320, height: 320, borderRadius: 160, backgroundColor: colors.primaryGold, opacity: 0.07 },
+  logoSection: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  logoRing: { width: 96, height: 96, borderRadius: 28, backgroundColor: colors.surfaceContainerHigh, borderWidth: 1, borderColor: colors.outlineVariant, alignItems: 'center', justifyContent: 'center', marginBottom: spacing.sm, shadowColor: colors.primaryGold, shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.15, shadowRadius: 24 },
+  logoImage: { width: 64, height: 64, borderRadius: 16 },
+  brandName: { fontSize: 40, fontWeight: '200', letterSpacing: 6, color: colors.primaryTextGold },
+  brandArabic: { fontSize: 18, fontWeight: '300', letterSpacing: 4, color: colors.onSurfaceVariant, opacity: 0.6 },
+  tagline: { fontSize: 12, fontWeight: '300', color: colors.outline, letterSpacing: 3, textTransform: 'uppercase', marginTop: spacing.xs },
+  buttonSection: { gap: spacing.sm, paddingBottom: spacing.md },
+  appleButtonFallback: { height: 52, backgroundColor: '#fff', borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm },
+  appleIcon: { fontSize: 16, color: '#000' },
+  appleButtonText: { color: '#000', fontSize: 15, fontWeight: '600', letterSpacing: 0.3 },
+  googleButton: { height: 52, backgroundColor: '#fff', borderRadius: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: spacing.sm, borderWidth: 1, borderColor: 'rgba(0,0,0,0.08)' },
+  googleG: { fontSize: 18, fontWeight: '700', color: '#4285F4', fontFamily: Platform.OS === 'ios' ? 'Georgia' : 'serif' },
+  googleButtonText: { color: '#333', fontSize: 15, fontWeight: '600', letterSpacing: 0.3 },
+  buttonLoading: { opacity: 0.5 },
+  divider: { flexDirection: 'row', alignItems: 'center', marginVertical: spacing.xs, gap: spacing.sm },
+  dividerLine: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: colors.outlineVariant },
+  dividerText: { color: colors.outline, fontSize: 11, letterSpacing: 2, textTransform: 'uppercase' },
+  manualButton: { alignItems: 'center', paddingVertical: spacing.sm },
+  manualButtonText: { color: colors.outline, fontSize: 13, letterSpacing: 1, textDecorationLine: 'underline' },
+  footer: { alignItems: 'center', paddingBottom: spacing.md },
+  footerText: { fontSize: 11, color: colors.outline, opacity: 0.6, letterSpacing: 0.3, textAlign: 'center' },
+  footerLink: { textDecorationLine: 'underline' },
 });
