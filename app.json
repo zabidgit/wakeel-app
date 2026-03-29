@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "60",
+      "buildNumber": "61",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -43,7 +43,7 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "googleClientIdIos": "",
+      "googleClientIdIos": "916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922.apps.googleusercontent.com",
       "eas": {
         "projectId": "621af8c4-fdbd-492d-bf22-2db15c196ebe"
       }
