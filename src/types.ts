@@ -23,7 +23,40 @@ export interface ChatInfo {
 
 export type ConnectionStatus = 'connected' | 'connecting' | 'disconnected';
 
+export type OnboardingData = {
+  wakeclName: string;
+  userName: string;
+  userNickname: string;
+  userTimezone: string;
+  partnerName?: string;
+  familyMembers?: string[];
+  personality: 'casual' | 'balanced' | 'professional';
+  proactiveness: 'quiet' | 'moderate' | 'proactive';
+};
+
 export type RootStackParamList = {
+  Auth: undefined;
+  Welcome: undefined;
+  OnboardingName: { accountToken?: string } | undefined;
+  OnboardingAbout: { wakeclName: string; accountToken?: string };
+  OnboardingPeople: {
+    wakeclName: string;
+    userName: string;
+    userNickname: string;
+    userTimezone: string;
+    accountToken?: string;
+  };
+  OnboardingPersonality: {
+    wakeclName: string;
+    userName: string;
+    userNickname: string;
+    userTimezone: string;
+    partnerName?: string;
+    familyMembers?: string[];
+    accountToken?: string;
+  };
+  OnboardingProvisioning: { data: OnboardingData; accountToken?: string };
+  OnboardingReady: { wakeclName: string };
   Pairing: undefined;
   Chat: { chatId?: string } | undefined;
   Settings: undefined;

@@ -16,6 +16,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing } from '../theme';
 import {
   getPairing,
@@ -156,6 +157,7 @@ export function ChatScreen({ navigation }: Props) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
+  const [pairingData, setPairingData] = useState<{ url: string; token: string } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
 
@@ -189,6 +191,7 @@ export function ChatScreen({ navigation }: Props) {
       }
 
       setWakeelName(pairing.name || 'Wakeel');
+      setPairingData({ url: pairing.url, token: pairing.token });
       connect(pairing);
 
       // Load chats
@@ -289,6 +292,18 @@ export function ChatScreen({ navigation }: Props) {
       }, 100);
     }
   }, [messages.length, streamingMessage]);
+
+  // ─── Reload messages when returning from Settings (e.g. after clear chat) ──
+  useFocusEffect(
+    React.useCallback(() => {
+      const reload = async () => {
+        if (!activeChat) return;
+        const chatMsgs = await getChatMessages(activeChat.sessionKey);
+        setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
+      };
+      reload();
+    }, [activeChat?.sessionKey])
+  );
 
   // ─── Chat switching ───────────────────────────────────────────────────────
 
@@ -455,11 +470,10 @@ export function ChatScreen({ navigation }: Props) {
     const sessionKey = activeChat?.sessionKey || 'main';
 
     if (attachment) {
-      const uploaded = await uploadAttachment(
-        attachment,
-        'https://app.getwakeel.app',
-        '2b8f265e6f5e8ac1f459e126582ba21dfff39a8b02bf5a2a',
-      );
+      // Upload to provisioning server (app.getwakeel.app/upload), auth with client gateway token
+      const uploaded = pairingData
+        ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
+        : null;
 
       if (uploaded) {
         const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;

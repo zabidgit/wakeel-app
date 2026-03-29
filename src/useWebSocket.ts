@@ -46,9 +46,9 @@ export function useWebSocket(): UseWebSocketReturn {
   const throttledDeltaHandler = useCallback((text: string) => {
     pendingDeltaRef.current = text;
     if (!throttleTimerRef.current) {
-      // Fire immediately on first delta, then throttle subsequent ones at ~50ms
+      // Fire immediately on first delta, then throttle at ~16ms (~60fps)
       flushDelta();
-      throttleTimerRef.current = setTimeout(flushDelta, 50);
+      throttleTimerRef.current = setTimeout(flushDelta, 16);
     }
   }, [flushDelta]);
 
