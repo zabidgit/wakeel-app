@@ -88,7 +88,77 @@ export function useWebSocket(): UseWebSocketReturn {
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Start health keepalive; actual connect is sent after receiving connect.challenge
+      // Send connect with device identity immediately on open (gateway 2026.3.x)
+      const scopes = ['operator.read', 'operator.write', 'operator.admin'];
+      const signedAtMs = Date.now();
+      loadOrCreateDeviceIdentity().then((identity) => {
+        const payloadStr = buildDeviceAuthPayloadV3({
+          deviceId: identity.deviceId,
+          clientId: 'openclaw-ios',
+          clientMode: 'webchat',
+          role: 'operator',
+          scopes,
+          signedAtMs,
+          token: pairing.token,
+          nonce: '',
+          platform: 'ios',
+          deviceFamily: 'phone',
+        });
+        const signature = signPayload(identity, payloadStr);
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'req',
+            id: nextId(),
+            method: 'connect',
+            params: {
+              minProtocol: 3,
+              maxProtocol: 3,
+              role: 'operator',
+              scopes,
+              auth: { token: pairing.token },
+              client: {
+                id: 'openclaw-ios',
+                mode: 'webchat',
+                platform: 'ios',
+                version: '1.0.0',
+                deviceFamily: 'phone',
+              },
+              device: {
+                id: identity.deviceId,
+                publicKey: identity.publicKeyB64url,
+                signature,
+                signedAt: signedAtMs,
+                nonce: '',
+              },
+            },
+          }));
+        }
+      }).catch(() => {
+        // Fallback: connect without device identity (gets operator.read only)
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          wsRef.current.send(JSON.stringify({
+            type: 'req',
+            id: nextId(),
+            method: 'connect',
+            params: {
+              minProtocol: 3,
+              maxProtocol: 3,
+              role: 'operator',
+              scopes,
+              auth: { token: pairing.token },
+              client: {
+                id: 'openclaw-ios',
+                mode: 'webchat',
+                platform: 'ios',
+                version: '1.0.0',
+                deviceFamily: 'phone',
+              },
+            },
+          }));
+        }
+      });
+
+      // Health keepalive every 25s
       if (healthRef.current) clearInterval(healthRef.current);
       healthRef.current = setInterval(() => {
         if (wsRef.current?.readyState === WebSocket.OPEN) {
@@ -100,80 +170,6 @@ export function useWebSocket(): UseWebSocketReturn {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-
-        // Gateway sends connect.challenge — respond with device identity + signed nonce
-        if (data.type === 'event' && data.event === 'connect.challenge') {
-          const nonce: string = data.payload?.nonce ?? '';
-          const scopes = ['operator.read', 'operator.write', 'operator.admin'];
-          const signedAtMs = Date.now();
-          loadOrCreateDeviceIdentity().then((identity) => {
-            const payloadStr = buildDeviceAuthPayloadV3({
-              deviceId: identity.deviceId,
-              clientId: 'openclaw-ios',
-              clientMode: 'webchat',
-              role: 'operator',
-              scopes,
-              signedAtMs,
-              token: pairing.token,
-              nonce,
-              platform: 'ios',
-              deviceFamily: 'phone',
-            });
-            const signature = signPayload(identity, payloadStr);
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({
-                type: 'req',
-                id: nextId(),
-                method: 'connect',
-                params: {
-                  minProtocol: 3,
-                  maxProtocol: 3,
-                  role: 'operator',
-                  scopes,
-                  auth: { token: pairing.token },
-                  client: {
-                    id: 'openclaw-ios',
-                    mode: 'webchat',
-                    platform: 'ios',
-                    version: '1.0.0',
-                    deviceFamily: 'phone',
-                  },
-                  device: {
-                    id: identity.deviceId,
-                    publicKey: identity.publicKeyB64url,
-                    signature,
-                    signedAt: signedAtMs,
-                    nonce,
-                  },
-                },
-              }));
-            }
-          }).catch(() => {
-            // Fallback: send connect without device identity (gets operator.read only)
-            if (wsRef.current?.readyState === WebSocket.OPEN) {
-              wsRef.current.send(JSON.stringify({
-                type: 'req',
-                id: nextId(),
-                method: 'connect',
-                params: {
-                  minProtocol: 3,
-                  maxProtocol: 3,
-                  role: 'operator',
-                  scopes,
-                  auth: { token: pairing.token },
-                  client: {
-                    id: 'openclaw-ios',
-                    mode: 'webchat',
-                    platform: 'ios',
-                    version: '1.0.0',
-                    deviceFamily: 'phone',
-                  },
-                },
-              }));
-            }
-          });
-          return;
-        }
 
         // Connect success
         if (data.type === 'res' && data.ok === true) {
