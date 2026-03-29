@@ -2,8 +2,16 @@ import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 // @ts-ignore — expo-file-system/legacy exports are correct at runtime
 import { readAsStringAsync } from 'expo-file-system/legacy';
-import { AudioModule, RecordingPresets, setAudioModeAsync } from 'expo-audio';
 import * as FileSystem from 'expo-file-system';
+
+// Lazy-load expo-audio to prevent startup crashes if native module has issues
+let _audioModule: typeof import('expo-audio') | null = null;
+async function getAudioModule() {
+  if (!_audioModule) {
+    _audioModule = await import('expo-audio');
+  }
+  return _audioModule;
+}
 
 export interface AttachmentResult {
   uri: string;
@@ -118,6 +126,8 @@ export interface RecordingHandle {
 
 export async function startRecording(): Promise<RecordingHandle | null> {
   try {
+    const { AudioModule, RecordingPresets, setAudioModeAsync } = await getAudioModule();
+
     const status = await AudioModule.requestRecordingPermissionsAsync();
     if (!status.granted) return null;
 
