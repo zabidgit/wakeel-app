@@ -13,6 +13,8 @@ import {
   Clipboard,
   Alert,
   ActionSheetIOS,
+  Animated,
+  PanResponder,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -36,7 +38,7 @@ import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
-import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
+import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult, startRecording, transcribeAudio, RecordingHandle } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -169,6 +171,13 @@ export function ChatScreen({ navigation }: Props) {
   // Streaming message
   const [streamingMessage, setStreamingMessage] = useState<Message | null>(null);
   const streamingMsgId = useRef<string | null>(null);
+
+  // Voice recording state
+  const [isRecording, setIsRecording] = useState(false);
+  const [isTranscribing, setIsTranscribing] = useState(false);
+  const recordingRef = useRef<RecordingHandle | null>(null);
+  const micPulse = useRef(new Animated.Value(1)).current;
+  const micCancelledRef = useRef(false);
 
   const flatListRef = useRef<FlatList>(null);
   const pushTokenSent = useRef(false);
@@ -431,6 +440,83 @@ export function ChatScreen({ navigation }: Props) {
     );
   }, []);
 
+  // ─── Voice recording ─────────────────────────────────────────────────────
+
+  const startMicRecording = useCallback(async () => {
+    micCancelledRef.current = false;
+    const handle = await startRecording();
+    if (!handle) {
+      Alert.alert('Microphone', 'Could not access microphone. Please check permissions.');
+      return;
+    }
+    recordingRef.current = handle;
+    setIsRecording(true);
+
+    // Pulse animation
+    Animated.loop(
+      Animated.sequence([
+        Animated.timing(micPulse, { toValue: 1.3, duration: 600, useNativeDriver: true }),
+        Animated.timing(micPulse, { toValue: 1.0, duration: 600, useNativeDriver: true }),
+      ])
+    ).start();
+  }, [micPulse]);
+
+  const stopMicRecording = useCallback(async (cancelled = false) => {
+    micPulse.stopAnimation();
+    micPulse.setValue(1);
+    setIsRecording(false);
+
+    const handle = recordingRef.current;
+    recordingRef.current = null;
+    if (!handle) return;
+
+    if (cancelled) {
+      await handle.cancel();
+      return;
+    }
+
+    setIsTranscribing(true);
+    try {
+      const result = await handle.stop();
+      if (!result || !pairingData) return;
+
+      const text = await transcribeAudio(result, 'https://app.getwakeel.app', pairingData.token);
+      if (!text) {
+        Alert.alert('Voice', 'Could not transcribe audio. Please try again.');
+        return;
+      }
+
+      // Auto-send the transcribed text
+      const sessionKey = activeChat?.sessionKey || 'main';
+      const newMsg: Message = {
+        id: `user-${Date.now()}-${Math.random()}`,
+        text,
+        sender: 'user',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => {
+        const updated = insertSorted(prev, newMsg);
+        if (activeChatRef.current) {
+          saveChatMessages(activeChatRef.current.sessionKey, updated);
+        } else {
+          saveMessages(updated);
+        }
+        return updated;
+      });
+      setIsTyping(true);
+      send(text, undefined, sessionKey);
+    } finally {
+      setIsTranscribing(false);
+    }
+  }, [pairingData, activeChat, send, micPulse]);
+
+  const micPanResponder = useMemo(() => PanResponder.create({
+    onStartShouldSetPanResponder: () => true,
+    onPanResponderGrant: () => { startMicRecording(); },
+    onPanResponderRelease: () => { stopMicRecording(false); },
+    onPanResponderTerminate: () => { stopMicRecording(true); },
+  }), [startMicRecording, stopMicRecording]);
+
   // ─── Send ─────────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
@@ -607,17 +693,26 @@ export function ChatScreen({ navigation }: Props) {
               maxLength={4000}
               returnKeyType="default"
             />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={!inputText.trim() && !pendingAttachment}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.sendIcon}>↑</Text>
-            </TouchableOpacity>
+            {(inputText.trim() || pendingAttachment) ? (
+              <TouchableOpacity
+                style={styles.sendButton}
+                onPress={handleSend}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.sendIcon}>↑</Text>
+              </TouchableOpacity>
+            ) : isTranscribing ? (
+              <View style={[styles.sendButton, styles.sendButtonTranscribing]}>
+                <Text style={styles.sendIcon}>…</Text>
+              </View>
+            ) : (
+              <Animated.View
+                style={[styles.micButton, isRecording && styles.micButtonRecording, { transform: [{ scale: isRecording ? micPulse : 1 }] }]}
+                {...micPanResponder.panHandlers}
+              >
+                <Text style={styles.micIcon}>{isRecording ? '🔴' : '🎤'}</Text>
+              </Animated.View>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -978,9 +1073,31 @@ const styles = StyleSheet.create({
     shadowOpacity: 0,
     elevation: 0,
   },
+  sendButtonTranscribing: {
+    backgroundColor: colors.surfaceContainerHighest,
+    shadowOpacity: 0,
+  },
   sendIcon: {
     color: colors.surfaceContainerLowest,
     fontSize: 18,
     fontWeight: '700',
+  },
+  micButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surfaceContainerHigh,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 2,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: colors.outlineVariant,
+  },
+  micButtonRecording: {
+    backgroundColor: 'rgba(220,50,50,0.15)',
+    borderColor: 'rgba(220,50,50,0.5)',
+  },
+  micIcon: {
+    fontSize: 18,
   },
 });

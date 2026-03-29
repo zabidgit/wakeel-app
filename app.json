@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wakeel",
     "slug": "wakeel",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "59",
+      "buildNumber": "60",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -72,7 +72,13 @@
       ],
       "expo-document-picker",
       "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Wakeel needs access to your microphone to send voice messages."
+        }
+      ]
     ]
   }
 }
