@@ -108,6 +108,13 @@ export function useWebSocket(): UseWebSocketReturn {
             version: '1.0.0',
             deviceFamily: 'phone',
           },
+          device: {
+            id: 'webchat-auto',
+            publicKey: '',
+            signature: '',
+            signedAt: Date.now(),
+            nonce: '',
+          },
         },
       }));
 
