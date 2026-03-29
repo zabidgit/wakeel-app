@@ -2,8 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { ConnectionStatus, PairingData } from './types';
-// Device identity imported only for future device pairing (not used in connect flow)
-// import { loadOrCreateDeviceIdentity, signPayload, buildDeviceAuthPayloadV3 } from './deviceIdentity';
+import { loadOrCreateDeviceIdentity, signPayload, buildDeviceAuthPayloadV3, DeviceIdentity } from './deviceIdentity';
 
 export interface Attachment {
   data: string;      // base64
@@ -81,34 +80,69 @@ export function useWebSocket(): UseWebSocketReturn {
     }
   }, []);
 
-  const doConnect = useCallback((pairing: PairingData) => {
+  const doConnect = useCallback(async (pairing: PairingData) => {
     cleanup();
     setStatus('connecting');
+
+    // Load device identity BEFORE creating WebSocket so it's ready synchronously in onopen
+    let identity: DeviceIdentity | null = null;
+    try {
+      identity = await loadOrCreateDeviceIdentity();
+    } catch {
+      // Continue without identity — will get read-only scopes
+    }
 
     const ws = new WebSocket(pairing.url);
     wsRef.current = ws;
 
     ws.onopen = () => {
-      // Send connect IMMEDIATELY on open — no async work before this
       const scopes = ['operator.read', 'operator.write', 'operator.admin'];
+      const signedAtMs = Date.now();
+
+      // Build connect params with device identity if available
+      const params: Record<string, unknown> = {
+        minProtocol: 3,
+        maxProtocol: 3,
+        role: 'operator',
+        scopes,
+        auth: { token: pairing.token, bootstrapToken: pairing.bootstrapToken },
+        client: {
+          id: 'openclaw-ios',
+          mode: 'webchat',
+          platform: 'ios',
+          version: '1.0.0',
+          deviceFamily: 'phone',
+        },
+      };
+
+      if (identity) {
+        const payloadStr = buildDeviceAuthPayloadV3({
+          deviceId: identity.deviceId,
+          clientId: 'openclaw-ios',
+          clientMode: 'webchat',
+          role: 'operator',
+          scopes,
+          signedAtMs,
+          token: pairing.token,
+          nonce: '',
+          platform: 'ios',
+          deviceFamily: 'phone',
+        });
+        const signature = signPayload(identity, payloadStr);
+        params.device = {
+          id: identity.deviceId,
+          publicKey: identity.publicKeyB64url,
+          signature,
+          signedAt: signedAtMs,
+          nonce: '',
+        };
+      }
+
       ws.send(JSON.stringify({
         type: 'req',
         id: nextId(),
         method: 'connect',
-        params: {
-          minProtocol: 3,
-          maxProtocol: 3,
-          role: 'operator',
-          scopes,
-          auth: { token: pairing.token, bootstrapToken: pairing.bootstrapToken },
-          client: {
-            id: 'openclaw-ios',
-            mode: 'webchat',
-            platform: 'ios',
-            version: '1.0.0',
-            deviceFamily: 'phone',
-          },
-        },
+        params,
       }));
 
       // Health keepalive every 25s
