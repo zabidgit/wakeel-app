@@ -11,6 +11,12 @@ export interface Attachment {
   fileName: string;
 }
 
+export interface HistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp?: number;
+}
+
 interface UseWebSocketReturn {
   status: ConnectionStatus;
   send: (message: string, attachments?: Attachment[], sessionKey?: string) => void;
@@ -19,6 +25,8 @@ interface UseWebSocketReturn {
   disconnect: () => void;
   endSession: () => Promise<void>;
   onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
+  onHistory: (handler: (messages: HistoryMessage[]) => void) => void;
+  requestHistory: (sessionKey?: string, limit?: number) => void;
 }
 
 let reqId = 0;
@@ -83,6 +91,8 @@ export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pairingRef = useRef<PairingData | null>(null);
   const handlerRef = useRef<((text: string, isFinal: boolean) => void) | null>(null);
+  const historyHandlerRef = useRef<((messages: HistoryMessage[]) => void) | null>(null);
+  const historyReqIdRef = useRef<string | null>(null);
   const streamRef = useRef('');
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -202,10 +212,52 @@ export function useWebSocket(): UseWebSocketReturn {
           // Don't return — let connect success also be handled below
         }
 
+        // Handle chat.history response
+        if (data.type === 'res' && data.id === historyReqIdRef.current) {
+          historyReqIdRef.current = null;
+          try {
+            const msgs = Array.isArray(data.result?.messages) ? data.result.messages : [];
+            const parsed: HistoryMessage[] = [];
+            for (const msg of msgs) {
+              if (!msg || typeof msg !== 'object') continue;
+              const role = msg.role === 'user' ? 'user' as const : msg.role === 'assistant' ? 'assistant' as const : null;
+              if (!role) continue;
+              let text = '';
+              if (typeof msg.text === 'string') text = msg.text;
+              else if (Array.isArray(msg.content)) {
+                text = msg.content
+                  .filter((c: any) => c?.type === 'text')
+                  .map((c: any) => c?.text || '')
+                  .join('');
+              }
+              if (!text.trim()) continue;
+              // Skip tool/system noise
+              if (role === 'user' && text.startsWith('[system]')) continue;
+              parsed.push({ role, text, timestamp: msg.ts ? new Date(msg.ts).getTime() : undefined });
+            }
+            if (parsed.length > 0 && historyHandlerRef.current) {
+              historyHandlerRef.current(parsed);
+            }
+          } catch {}
+          return;
+        }
+
         // Connect success
         if (data.type === 'res' && data.ok === true) {
           setStatus('connected');
           attemptRef.current = 0;
+
+          // Auto-request chat history on every connect/reconnect
+          try {
+            const hId = nextId();
+            historyReqIdRef.current = hId;
+            ws.send(JSON.stringify({
+              type: 'req',
+              id: hId,
+              method: 'chat.history',
+              params: { sessionKey: 'agent:main:main', limit: 50 },
+            }));
+          } catch {}
           return;
         }
 
@@ -335,7 +387,24 @@ export function useWebSocket(): UseWebSocketReturn {
     handlerRef.current = handler;
   }, []);
 
+  const onHistory = useCallback((handler: (messages: HistoryMessage[]) => void) => {
+    historyHandlerRef.current = handler;
+  }, []);
+
+  const requestHistory = useCallback((sessionKey?: string, limit?: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const hId = nextId();
+      historyReqIdRef.current = hId;
+      wsRef.current.send(JSON.stringify({
+        type: 'req',
+        id: hId,
+        method: 'chat.history',
+        params: { sessionKey: sessionKey || 'agent:main:main', limit: limit || 50 },
+      }));
+    }
+  }, []);
+
   useEffect(() => { return () => cleanup(); }, [cleanup]);
 
-  return { status, send, sendPushToken, connect, disconnect, endSession, onMessage };
+  return { status, send, sendPushToken, connect, disconnect, endSession, onMessage, onHistory, requestHistory };
 }

@@ -29,7 +29,7 @@ import {
   saveChatMessages,
   clearChatMessages,
 } from '../storage';
-import { useWebSocket, Attachment } from '../useWebSocket';
+import { useWebSocket, Attachment, HistoryMessage } from '../useWebSocket';
 import { Message, ConnectionStatus, ChatInfo, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
@@ -183,7 +183,7 @@ export function ChatScreen({ navigation }: Props) {
   const flatListRef = useRef<FlatList>(null);
   const pushTokenSent = useRef(false);
   const activeChatRef = useRef<ChatInfo | null>(null);
-  const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
+  const { status, send, sendPushToken, connect, onMessage, onHistory } = useWebSocket();
   const insets = useSafeAreaInsets();
 
   // Keep ref in sync for use in callbacks
@@ -293,6 +293,47 @@ export function ChatScreen({ navigation }: Props) {
       }
     });
   }, [onMessage]);
+
+  // Handle history loaded on reconnect
+  useEffect(() => {
+    onHistory((historyMsgs: HistoryMessage[]) => {
+      if (historyMsgs.length === 0) return;
+
+      // Convert history messages to our Message format
+      // Use a base timestamp and space messages 1s apart for ordering
+      const baseTs = Date.now() - (historyMsgs.length * 1000);
+      const historyConverted: Message[] = historyMsgs.map((hm, i) => ({
+        id: `history-${hm.role}-${i}-${hm.timestamp || (baseTs + i * 1000)}`,
+        text: hm.text,
+        sender: hm.role === 'user' ? 'user' as const : 'wakeel' as const,
+        timestamp: hm.timestamp || (baseTs + i * 1000),
+      }));
+
+      setMessages(prev => {
+        // Build a set of existing message texts for dedup
+        const existingTexts = new Set(prev.map(m => m.text.trim().slice(0, 100)));
+
+        // Only add history messages not already in local state
+        const newFromHistory = historyConverted.filter(hm =>
+          !existingTexts.has(hm.text.trim().slice(0, 100))
+        );
+
+        if (newFromHistory.length === 0) return prev;
+
+        const merged = dedupeAndSort([...prev, ...newFromHistory]);
+
+        // Persist
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, merged);
+        } else {
+          saveMessages(merged);
+        }
+
+        return merged;
+      });
+    });
+  }, [onHistory]);
 
   // Auto-scroll
   useEffect(() => {
