@@ -258,10 +258,11 @@ export function ChatScreen({ navigation }: Props) {
       });
     };
 
-    // Foreground notification — insert content into chat
-    const fgSub = addNotificationReceivedListener((notification) => {
-      const { body, title } = notification.request.content;
-      insertPushMessage(body ?? undefined, title ?? undefined);
+    // Foreground notification — DON'T insert into chat.
+    // When the app is active, WebSocket already delivered the message.
+    // Inserting from push too causes double messages.
+    const fgSub = addNotificationReceivedListener(() => {
+      // No-op — just let the banner show via setNotificationHandler
     });
 
     // Notification tap — insert content + scroll to bottom
