@@ -805,7 +805,7 @@ const createBubbleStyles = (colors: ReturnType<typeof getThemeColors>) => StyleS
   wakeelAvatarImg: {
     width: 22,
     height: 22,
-    borderRadius: 4,
+    borderRadius: 6,
   },
   wakeelLabel: {
     fontSize: 10,
@@ -890,16 +890,14 @@ const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.c
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: colors.surfaceContainerHighest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineVariant,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
   },
   logoMiniImg: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: '100%' as any,
+    height: '100%' as any,
   },
   headerTitleGroup: {
     gap: 2,

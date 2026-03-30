@@ -230,9 +230,12 @@ const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.c
     alignItems: 'center',
   },
   owlImage: {
-    width: 140,
-    height: 140,
-    borderRadius: 20,
+    width: 120,
+    height: 120,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
   },
 
   // Headlines

@@ -307,7 +307,10 @@ const styles = StyleSheet.create({
   owlImage: {
     width: 120,
     height: 120,
-    borderRadius: 20,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
   },
 
   steps: {
