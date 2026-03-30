@@ -188,7 +188,7 @@ export function ProvisioningScreen({ navigation, route }: Props) {
             Setting up...
           </Animated.Text>
           <Text style={styles.subtitle}>
-            Creating your Wakeel. This takes about 30 seconds.
+            Creating your Wakeel. This takes about 2 minutes.
           </Text>
 
           {/* Animated owl */}

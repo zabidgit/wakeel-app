@@ -113,14 +113,17 @@ export function SettingsScreen({ navigation }: Props) {
   const handleSignOut = () => {
     Alert.alert(
       'Sign Out',
-      'You\'ll need to sign in again to access your Wakeel.',
+      'This will end your session and sign you out. You\'ll need to sign in again to reconnect.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            try { await endSession(); } catch {}
             await clearAccountToken();
+            await clearPairing();
+            await clearMessages();
             navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
           },
         },
@@ -384,7 +387,7 @@ export function SettingsScreen({ navigation }: Props) {
               iconColor="#FF9500"
               iconBg="rgba(255,149,0,0.1)"
               title="Sign Out"
-              subtitle="Return to Login Screen"
+              subtitle="End session and return to login"
               danger
               onPress={handleSignOut}
             />
@@ -464,16 +467,7 @@ export function SettingsScreen({ navigation }: Props) {
             subtitle="Delete Chat History"
             onPress={handleClearMessages}
           />
-          <View style={styles.rowDivider} />
-          <SettingsRow
-            icon="✕"
-            iconColor={colors.error}
-            iconBg="rgba(255,180,171,0.1)"
-            title="Disconnect"
-            subtitle="Terminate Current Session"
-            danger
-            onPress={handleDisconnect}
-          />
+          {/* Disconnect merged into Sign Out */}
         </View>
 
         {/* Cancel Wakeel — nuclear option */}
