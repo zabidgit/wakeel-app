@@ -36,7 +36,7 @@ import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
-import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
+import { registerForPushNotifications, registerTokenWithPushServer, addNotificationReceivedListener, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
@@ -228,11 +228,54 @@ export function ChatScreen({ navigation }: Props) {
 
     clearBadge();
 
-    const sub = addNotificationResponseReceivedListener(() => {
+    // Insert push notification content into chat as messages
+    const insertPushMessage = (body: string | undefined, title: string | undefined) => {
+      if (!body) return;
+      // Don't insert if it looks like a duplicate of a recent message
+      const trimmed = body.trim().slice(0, 100);
+      setMessages(prev => {
+        const isDupe = prev.some(m =>
+          m.sender === 'wakeel' &&
+          m.text.trim().slice(0, 100) === trimmed &&
+          Date.now() - m.timestamp < 60000
+        );
+        if (isDupe) return prev;
+
+        const pushMsg: Message = {
+          id: `push-${Date.now()}-${Math.random()}`,
+          text: body,
+          sender: 'wakeel',
+          timestamp: Date.now(),
+        };
+        const updated = insertSorted(prev, pushMsg);
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, updated);
+        } else {
+          saveMessages(updated);
+        }
+        return updated;
+      });
+    };
+
+    // Foreground notification — insert content into chat
+    const fgSub = addNotificationReceivedListener((notification) => {
+      const { body, title } = notification.request.content;
+      insertPushMessage(body ?? undefined, title ?? undefined);
+    });
+
+    // Notification tap — insert content + scroll to bottom
+    const tapSub = addNotificationResponseReceivedListener((response) => {
       clearBadge();
+      const { body, title } = response.notification.request.content;
+      insertPushMessage(body ?? undefined, title ?? undefined);
       flatListRef.current?.scrollToEnd({ animated: true });
     });
-    return () => sub.remove();
+
+    return () => {
+      fgSub.remove();
+      tapSub.remove();
+    };
   }, []);
 
   // Register push token once connected
