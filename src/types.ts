@@ -39,14 +39,15 @@ export type OnboardingData = {
 export type RootStackParamList = {
   Auth: undefined;
   Welcome: undefined;
-  OnboardingName: { accountToken?: string } | undefined;
-  OnboardingAbout: { wakeclName: string; accountToken?: string };
+  OnboardingName: { accountToken?: string; account?: { provider: string; email?: string; plan?: string } } | undefined;
+  OnboardingAbout: { wakeclName: string; accountToken?: string; account?: { provider: string; email?: string; plan?: string } };
   OnboardingPeople: {
     wakeclName: string;
     userName: string;
     userNickname: string;
     userTimezone: string;
     accountToken?: string;
+    account?: { provider: string; email?: string; plan?: string };
   };
   OnboardingPersonality: {
     wakeclName: string;
@@ -56,8 +57,9 @@ export type RootStackParamList = {
     partnerName?: string;
     familyMembers?: string[];
     accountToken?: string;
+    account?: { provider: string; email?: string; plan?: string };
   };
-  OnboardingProvisioning: { data: OnboardingData; accountToken?: string };
+  OnboardingProvisioning: { data: OnboardingData; accountToken?: string; account?: { provider: string; email?: string; plan?: string } };
   OnboardingReady: { wakeclName: string };
   Pairing: undefined;
   Chat: { chatId?: string } | undefined;

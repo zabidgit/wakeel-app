@@ -66,21 +66,25 @@ export function AuthScreen({ navigation }: Props) {
 
   // ── Navigation ────────────────────────────────────────────────────────────
 
-  async function navigateAfterAuth(accountToken: string, isNewUser: boolean) {
+  async function navigateAfterAuth(accountToken: string, isNewUser: boolean, account?: { provider: string; email?: string; plan?: string }) {
     if (isNewUser) {
-      navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken } }] });
+      // New user → onboarding. Account persisted AFTER provisioning succeeds.
+      navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken, account } }] });
       return;
     }
     try {
       const { pairing } = await fetchAccountAndPairing(accountToken);
       if (pairing) {
+        // Returning user with existing container — safe to persist now
+        await saveAccountToken(accountToken);
+        if (account) await saveAccountInfo(account);
         await savePairing(pairing);
         navigation.reset({ index: 0, routes: [{ name: 'Chat' }] });
       } else {
-        navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken } }] });
+        navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken, account } }] });
       }
     } catch {
-      navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken } }] });
+      navigation.reset({ index: 0, routes: [{ name: 'OnboardingName', params: { accountToken, account } }] });
     }
   }
 
@@ -112,9 +116,8 @@ export function AuthScreen({ navigation }: Props) {
       }
 
       const result = await signInWithAppleOnServer(identityToken, fullNameStr, email);
-      await saveAccountToken(result.accountToken);
-      await saveAccountInfo(result.account);
-      await navigateAfterAuth(result.accountToken, result.isNewUser);
+      // Don't persist account yet — wait until provisioning succeeds (or existing pairing found)
+      await navigateAfterAuth(result.accountToken, result.isNewUser, result.account);
     } catch (e: unknown) {
       // ERR_REQUEST_CANCELED means user dismissed the modal — don't show error
       if (e && typeof e === 'object' && 'code' in e && (e as { code: string }).code === 'ERR_REQUEST_CANCELED') {
@@ -150,9 +153,8 @@ export function AuthScreen({ navigation }: Props) {
         }
 
         const result = await signInWithGoogleOnServer(idToken);
-        await saveAccountToken(result.accountToken);
-        await saveAccountInfo(result.account);
-        await navigateAfterAuth(result.accountToken, result.isNewUser);
+        // Don't persist account yet — wait until provisioning succeeds (or existing pairing found)
+        await navigateAfterAuth(result.accountToken, result.isNewUser, result.account);
       }
     } catch (e: unknown) {
       Alert.alert('Sign In Failed', e instanceof Error ? e.message : 'Google sign-in failed.');

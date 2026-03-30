@@ -40,7 +40,7 @@ const INITIATIVE_OPTIONS: CardOption<Initiative>[] = [
 ];
 
 export function PersonalityScreen({ navigation, route }: Props) {
-  const { wakeclName, userName, userNickname, userTimezone, partnerName, familyMembers, accountToken } = route.params;
+  const { wakeclName, userName, userNickname, userTimezone, partnerName, familyMembers, accountToken, account } = route.params;
   const [tone, setTone] = useState<Tone>('balanced');
   const [initiative, setInitiative] = useState<Initiative>('moderate');
 
@@ -55,7 +55,7 @@ export function PersonalityScreen({ navigation, route }: Props) {
       personality: tone,
       proactiveness: initiative,
     };
-    navigation.navigate('OnboardingProvisioning', { data, accountToken });
+    navigation.navigate('OnboardingProvisioning', { data, accountToken, account });
   };
 
   function renderCard<T extends string>(
