@@ -21,7 +21,8 @@
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Wakeel needs access to your microphone for voice messages."
       },
       "buildNumber": "84",
       "entitlements": {
@@ -76,6 +77,12 @@
         "@react-native-google-signin/google-signin",
         {
           "iosUrlScheme": "com.googleusercontent.apps.916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice messages."
         }
       ]
     ]

@@ -13,6 +13,8 @@ import {
   Clipboard,
   Alert,
   ActionSheetIOS,
+  Animated,
+  AppState,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -38,6 +40,18 @@ import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationReceivedListener, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  AudioModule,
+  setAudioModeAsync,
+} from 'expo-audio';
+import {
+  WHISPER_RECORDING_PRESET,
+  requestMicPermission,
+  readRecordingAsBase64,
+  transcribeAudio,
+} from '../voice';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -171,6 +185,16 @@ export function ChatScreen({ navigation }: Props) {
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
 
+  // Voice recording state
+  type VoiceState = 'idle' | 'recording' | 'transcribing';
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const voiceStateRef = useRef<VoiceState>('idle');
+  const recordingStartTime = useRef<number>(0);
+  const autoStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const audioRecorder = useAudioRecorder(WHISPER_RECORDING_PRESET);
+  const recorderState = useAudioRecorderState(audioRecorder);
+
   // Multi-chat state
   const [chats, setChats] = useState<ChatInfo[]>([]);
   const [activeChat, setActiveChat] = useState<ChatInfo | null>(null);
@@ -190,6 +214,39 @@ export function ChatScreen({ navigation }: Props) {
   useEffect(() => {
     activeChatRef.current = activeChat;
   }, [activeChat]);
+
+  // Keep voiceState ref in sync
+  useEffect(() => {
+    voiceStateRef.current = voiceState;
+  }, [voiceState]);
+
+  // Pulsing animation for recording indicator
+  useEffect(() => {
+    if (voiceState === 'recording') {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [voiceState]);
+
+  // Stop recording if app goes to background
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' && voiceStateRef.current === 'recording') {
+        try { audioRecorder.stop(); } catch {}
+        setVoiceState('idle');
+        if (autoStopTimer.current) clearTimeout(autoStopTimer.current);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Load pairing, chats, and messages on mount
   useEffect(() => {
@@ -521,6 +578,104 @@ export function ChatScreen({ navigation }: Props) {
     );
   }, []);
 
+  // ─── Voice recording ───────────────────────────────────────────────────────
+
+  const handleMicPress = useCallback(async () => {
+    if (voiceState !== 'idle') return; // debounce
+
+    const granted = await requestMicPermission();
+    if (!granted) {
+      Alert.alert('Microphone Access', 'Please enable microphone access in Settings to use voice input.');
+      return;
+    }
+
+    try {
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordingStartTime.current = Date.now();
+      setVoiceState('recording');
+
+      // Auto-stop after 60 seconds
+      autoStopTimer.current = setTimeout(() => {
+        if (voiceStateRef.current === 'recording') {
+          handleStopRecording();
+        }
+      }, 60_000);
+    } catch (e) {
+      console.error('Failed to start recording:', e);
+      setVoiceState('idle');
+    }
+  }, [voiceState, audioRecorder]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (voiceStateRef.current !== 'recording') return; // double-stop guard
+
+    if (autoStopTimer.current) {
+      clearTimeout(autoStopTimer.current);
+      autoStopTimer.current = null;
+    }
+
+    const elapsed = Date.now() - recordingStartTime.current;
+    if (elapsed < 500) {
+      // Too short — discard
+      try { await audioRecorder.stop(); } catch {}
+      setVoiceState('idle');
+      Alert.alert('Recording too short', 'Hold a bit longer to record a voice message.');
+      return;
+    }
+
+    setVoiceState('transcribing');
+
+    try {
+      await audioRecorder.stop();
+    } catch (e) {
+      console.error('Failed to stop recording:', e);
+      setVoiceState('idle');
+      return;
+    }
+
+    const uri = audioRecorder.uri;
+    if (!uri) {
+      setVoiceState('idle');
+      Alert.alert('Recording Error', 'Could not save the recording. Please try again.');
+      return;
+    }
+
+    const base64 = await readRecordingAsBase64(uri);
+    if (!base64) {
+      setVoiceState('idle');
+      Alert.alert('Recording Error', 'Could not read the recording. Please try again.');
+      return;
+    }
+
+    if (!pairingData) {
+      setVoiceState('idle');
+      Alert.alert('Not Connected', 'Please pair with your Wakeel first.');
+      return;
+    }
+
+    const text = await transcribeAudio(base64, 'https://app.getwakeel.app', pairingData.token);
+    setVoiceState('idle');
+
+    if (text) {
+      // Append to existing text (don't overwrite if user typed something)
+      setInputText(prev => prev ? `${prev} ${text}` : text);
+    } else {
+      Alert.alert('Transcription Failed', 'Could not transcribe your voice message. Please try again.');
+    }
+  }, [audioRecorder, pairingData]);
+
+  const handleCancelRecording = useCallback(async () => {
+    if (autoStopTimer.current) {
+      clearTimeout(autoStopTimer.current);
+      autoStopTimer.current = null;
+    }
+
+    try { await audioRecorder.stop(); } catch {}
+    setVoiceState('idle');
+  }, [audioRecorder]);
+
   // ─── Send ─────────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
@@ -657,6 +812,26 @@ export function ChatScreen({ navigation }: Props) {
 
         {/* Input Bar */}
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
+          {/* Recording overlay */}
+          {voiceState === 'recording' && (
+            <View style={styles.recordingOverlay}>
+              <View style={styles.recordingRow}>
+                <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
+                <Text style={styles.recordingText}>Recording...</Text>
+              </View>
+              <TouchableOpacity onPress={handleCancelRecording} style={styles.cancelButton} activeOpacity={0.7}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Transcribing state */}
+          {voiceState === 'transcribing' && (
+            <View style={styles.recordingOverlay}>
+              <Text style={styles.transcribingText}>Transcribing...</Text>
+            </View>
+          )}
+
           {pendingAttachment && (
             <View style={styles.attachmentPreview}>
               {pendingAttachment.mimeType.startsWith('image/') ? (
@@ -682,8 +857,9 @@ export function ChatScreen({ navigation }: Props) {
               onPress={handleAttachmentPress}
               style={styles.attachButton}
               activeOpacity={0.7}
+              disabled={voiceState !== 'idle'}
             >
-              <Text style={styles.attachIcon}>+</Text>
+              <Text style={[styles.attachIcon, voiceState !== 'idle' && { opacity: 0.3 }]}>+</Text>
             </TouchableOpacity>
             <TextInput
               style={styles.input}
@@ -694,18 +870,39 @@ export function ChatScreen({ navigation }: Props) {
               multiline
               maxLength={4000}
               returnKeyType="default"
+              editable={voiceState !== 'recording'}
             />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={!inputText.trim() && !pendingAttachment}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.sendIcon}>↑</Text>
-            </TouchableOpacity>
+            {/* Show mic when empty + idle, stop button when recording, otherwise send */}
+            {voiceState === 'recording' ? (
+              <TouchableOpacity
+                style={[styles.sendButton, { backgroundColor: '#FF3B30' }]}
+                onPress={handleStopRecording}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.sendIcon}>■</Text>
+              </TouchableOpacity>
+            ) : !inputText.trim() && !pendingAttachment && voiceState === 'idle' ? (
+              <TouchableOpacity
+                style={[styles.sendButton, !pairingData && styles.sendButtonDisabled]}
+                onPress={handleMicPress}
+                disabled={!pairingData || voiceState !== 'idle'}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.sendIcon, { fontSize: 16 }]}>🎤</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  ((!inputText.trim() && !pendingAttachment) || voiceState !== 'idle') && styles.sendButtonDisabled,
+                ]}
+                onPress={handleSend}
+                disabled={(!inputText.trim() && !pendingAttachment) || voiceState !== 'idle'}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.sendIcon}>↑</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -1076,5 +1273,53 @@ const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.c
     color: colors.surfaceContainerLowest,
     fontSize: 18,
     fontWeight: '700',
+  },
+
+  // Voice recording UI
+  recordingOverlay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  recordingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
+  },
+  recordingText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  cancelButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceContainerHighest,
+  },
+  cancelButtonText: {
+    color: colors.outline,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  transcribingText: {
+    color: colors.primaryTextGold,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
 });
