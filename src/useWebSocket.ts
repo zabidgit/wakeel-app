@@ -318,15 +318,14 @@ export function useWebSocket(): UseWebSocketReturn {
 
   const sendPushToken = useCallback((token: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Store Expo push token on gateway via operator.meta.set
-      // so the server can use it for push notifications later
+      // Register push token with gateway's built-in push system
       wsRef.current.send(JSON.stringify({
         type: 'req',
         id: nextId(),
-        method: 'operator.meta.set',
+        method: 'device.registerPush',
         params: {
           pushToken: token,
-          pushPlatform: 'expo',
+          platform: 'ios',
         },
       }));
     }
