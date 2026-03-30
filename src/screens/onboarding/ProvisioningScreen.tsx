@@ -12,7 +12,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { colors, spacing } from '../../theme';
 import { RootStackParamList, PairingData } from '../../types';
-import { savePairing } from '../../storage';
+import { savePairing, clearMessages } from '../../storage';
 import { provisionWithAccountToken, saveAccountToken, saveAccountInfo } from '../../auth';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
@@ -142,6 +142,7 @@ export function ProvisioningScreen({ navigation, route }: Props) {
         setCurrentStep(2);
         await delay(1500);
         if (cancelled) return;
+        await clearMessages(); // Fresh container = fresh chat
         await savePairing(pairingData);
         // Persist account NOW — provisioning succeeded
         if (accountToken) await saveAccountToken(accountToken);

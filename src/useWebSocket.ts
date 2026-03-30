@@ -243,6 +243,9 @@ export function useWebSocket(): UseWebSocketReturn {
               if (!text.trim()) continue;
               // Skip tool/system noise
               if (role === 'user' && text.startsWith('[system]')) continue;
+              // Skip /new command and session reset prompts
+              if (role === 'user' && text.trim() === '/new') continue;
+              if (text.includes('A new session was started via /new') || text.includes('Execute your Session Startup sequence')) continue;
               parsed.push({ role, text, timestamp: msg.ts ? new Date(msg.ts).getTime() : undefined });
             }
             if (parsed.length > 0 && historyHandlerRef.current) {
@@ -284,6 +287,8 @@ export function useWebSocket(): UseWebSocketReturn {
           else if (Array.isArray(msg.content)) {
             text = msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('');
           }
+          // Skip session reset prompts from real-time messages
+          if (text.includes('A new session was started via /new') || text.includes('Execute your Session Startup sequence')) return;
           if (p.state === 'delta') {
             // Gateway sends accumulated text, not chunks — use = not +=
             streamRef.current = text;
