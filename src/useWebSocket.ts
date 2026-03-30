@@ -93,6 +93,8 @@ export function useWebSocket(): UseWebSocketReturn {
   const handlerRef = useRef<((text: string, isFinal: boolean) => void) | null>(null);
   const historyHandlerRef = useRef<((messages: HistoryMessage[]) => void) | null>(null);
   const historyReqIdRef = useRef<string | null>(null);
+  const connectReqIdRef = useRef<string | null>(null);
+  const historyLoadedRef = useRef(false);
   const streamRef = useRef('');
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -146,15 +148,18 @@ export function useWebSocket(): UseWebSocketReturn {
     _wsRefGlobal.current = ws;
 
     ws.onopen = () => {
+      historyLoadedRef.current = false;
       try {
         const scopes = ['operator.read', 'operator.write', 'operator.admin'];
         const authObj: Record<string, unknown> = { token: pairing.token };
         if (pairing.deviceToken) authObj.deviceToken = pairing.deviceToken;
         if (pairing.bootstrapToken) authObj.bootstrapToken = pairing.bootstrapToken;
 
+        const cId = nextId();
+        connectReqIdRef.current = cId;
         ws.send(JSON.stringify({
           type: 'req',
-          id: nextId(),
+          id: cId,
           method: 'connect',
           params: {
             minProtocol: 3,
@@ -173,9 +178,11 @@ export function useWebSocket(): UseWebSocketReturn {
         }));
       } catch (e) {
         // Fallback: absolute minimum connect
+        const cId = nextId();
+        connectReqIdRef.current = cId;
         ws.send(JSON.stringify({
           type: 'req',
-          id: nextId(),
+          id: cId,
           method: 'connect',
           params: {
             minProtocol: 3,
@@ -213,10 +220,13 @@ export function useWebSocket(): UseWebSocketReturn {
         }
 
         // Handle chat.history response
-        if (data.type === 'res' && data.id === historyReqIdRef.current) {
+        if (data.type === 'res' && data.id && data.id === historyReqIdRef.current) {
           historyReqIdRef.current = null;
+          historyLoadedRef.current = true;
           try {
-            const msgs = Array.isArray(data.result?.messages) ? data.result.messages : [];
+            // Gateway sends "payload" not "result"
+            const payload = data.payload || data.result || {};
+            const msgs = Array.isArray(payload.messages) ? payload.messages : [];
             const parsed: HistoryMessage[] = [];
             for (const msg of msgs) {
               if (!msg || typeof msg !== 'object') continue;
@@ -242,22 +252,25 @@ export function useWebSocket(): UseWebSocketReturn {
           return;
         }
 
-        // Connect success
-        if (data.type === 'res' && data.ok === true) {
+        // Connect success — only match the actual connect response
+        if (data.type === 'res' && data.id === connectReqIdRef.current && data.ok === true) {
+          connectReqIdRef.current = null;
           setStatus('connected');
           attemptRef.current = 0;
 
           // Auto-request chat history on every connect/reconnect
-          try {
-            const hId = nextId();
-            historyReqIdRef.current = hId;
-            ws.send(JSON.stringify({
-              type: 'req',
-              id: hId,
-              method: 'chat.history',
-              params: { sessionKey: 'agent:main:main', limit: 50 },
-            }));
-          } catch {}
+          if (!historyLoadedRef.current) {
+            try {
+              const hId = nextId();
+              historyReqIdRef.current = hId;
+              ws.send(JSON.stringify({
+                type: 'req',
+                id: hId,
+                method: 'chat.history',
+                params: { sessionKey: 'agent:main:main', limit: 50 },
+              }));
+            } catch {}
+          }
           return;
         }
 
