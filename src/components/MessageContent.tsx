@@ -7,11 +7,22 @@ import { getThemeColors } from '../theme';
 interface MessageContentProps {
   text: string;
   isUser: boolean;
+  isStreaming?: boolean;
 }
 
-export function MessageContent({ text, isUser }: MessageContentProps) {
+export function MessageContent({ text, isUser, isStreaming }: MessageContentProps) {
   const { colors } = useTheme();
   const { userMarkdownStyles, wakeelMarkdownStyles } = useMemo(() => createMarkdownStyles(colors), [colors]);
+
+  // During streaming, render as plain text to prevent jagged markdown re-renders
+  // (incomplete tokens like ** or - cause the parser to jump around)
+  if (isStreaming) {
+    return (
+      <Text style={isUser ? userMarkdownStyles.body : wakeelMarkdownStyles.body}>
+        {text}
+      </Text>
+    );
+  }
 
   const hasMarkdown = /[*_`#\[\]>-]/.test(text);
 

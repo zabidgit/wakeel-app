@@ -154,7 +154,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }
           <Text style={styles.wakeelLabel}>Wakeel</Text>
         </View>
         <View style={styles.wakeelMessageBody}>
-          <MessageContent text={message.text} isUser={false} />
+          <MessageContent text={message.text} isUser={false} isStreaming={isStreaming} />
           {isStreaming && <StreamingCursor />}
         </View>
         <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
