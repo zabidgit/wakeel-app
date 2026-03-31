@@ -673,12 +673,30 @@ export function ChatScreen({ navigation }: Props) {
     setVoiceState('idle');
 
     if (text) {
-      // Append to existing text (don't overwrite if user typed something)
-      setInputText(prev => prev ? `${prev} ${text}` : text);
+      // Auto-send the transcribed message
+      const finalText = inputText.trim() ? `${inputText.trim()} ${text}` : text;
+      send(finalText);
+      const newMsg: Message = {
+        id: `user-${Date.now()}`,
+        text: finalText,
+        sender: 'user',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => {
+        const updated = insertSorted(prev, newMsg);
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, updated);
+        } else {
+          saveMessages(updated);
+        }
+        return updated;
+      });
+      setInputText('');
     } else {
       Alert.alert('Transcription Failed', 'Could not transcribe your voice message. Please try again.');
     }
-  }, [audioRecorder, pairingData]);
+  }, [audioRecorder, pairingData, inputText, send]);
 
   const handleCancelRecording = useCallback(async () => {
     if (autoStopTimer.current) {
