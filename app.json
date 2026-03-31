@@ -24,7 +24,7 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSMicrophoneUsageDescription": "Wakeel needs access to your microphone for voice messages."
       },
-      "buildNumber": "84",
+      "buildNumber": "85",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [

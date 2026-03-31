@@ -583,7 +583,13 @@ export function ChatScreen({ navigation }: Props) {
   const handleMicPress = useCallback(async () => {
     if (voiceState !== 'idle') return; // debounce
 
-    const granted = await requestMicPermission();
+    let granted = false;
+    try {
+      granted = await requestMicPermission();
+    } catch (permErr) {
+      Alert.alert('Microphone Error', 'Could not request microphone permission: ' + String(permErr));
+      return;
+    }
     if (!granted) {
       Alert.alert('Microphone Access', 'Please enable microphone access in Settings to use voice input.');
       return;
@@ -591,6 +597,12 @@ export function ChatScreen({ navigation }: Props) {
 
     try {
       await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+    } catch (modeErr) {
+      Alert.alert('Audio Error', 'Could not set audio mode: ' + String(modeErr));
+      return;
+    }
+
+    try {
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
       recordingStartTime.current = Date.now();
@@ -603,7 +615,7 @@ export function ChatScreen({ navigation }: Props) {
         }
       }, 60_000);
     } catch (e) {
-      console.error('Failed to start recording:', e);
+      Alert.alert('Recording Error', 'Could not start recording: ' + String(e));
       setVoiceState('idle');
     }
   }, [voiceState, audioRecorder]);
