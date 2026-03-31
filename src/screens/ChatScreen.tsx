@@ -886,23 +886,22 @@ export function ChatScreen({ navigation }: Props) {
               returnKeyType="default"
               editable={voiceState !== 'recording'}
             />
-            {/* Show mic when empty + idle, stop button when recording, otherwise send */}
-            {voiceState === 'recording' ? (
+            {/* Show mic when empty + idle (hold to record), otherwise send */}
+            {!inputText.trim() && !pendingAttachment && voiceState !== 'transcribing' ? (
               <TouchableOpacity
-                style={[styles.sendButton, { backgroundColor: '#FF3B30' }]}
-                onPress={handleStopRecording}
+                style={[
+                  styles.sendButton,
+                  !pairingData && styles.sendButtonDisabled,
+                  voiceState === 'recording' && { backgroundColor: '#FF3B30' },
+                ]}
+                onPressIn={voiceState === 'idle' ? handleMicPress : undefined}
+                onPressOut={voiceState === 'recording' ? handleStopRecording : undefined}
+                disabled={!pairingData || voiceState === 'transcribing'}
                 activeOpacity={0.75}
               >
-                <Text style={styles.sendIcon}>■</Text>
-              </TouchableOpacity>
-            ) : !inputText.trim() && !pendingAttachment && voiceState === 'idle' ? (
-              <TouchableOpacity
-                style={[styles.sendButton, !pairingData && styles.sendButtonDisabled]}
-                onPress={handleMicPress}
-                disabled={!pairingData || voiceState !== 'idle'}
-                activeOpacity={0.75}
-              >
-                <Text style={[styles.sendIcon, { fontSize: 16 }]}>🎤</Text>
+                <Text style={[styles.sendIcon, { fontSize: 16 }]}>
+                  {voiceState === 'recording' ? '🔴' : '🎤'}
+                </Text>
               </TouchableOpacity>
             ) : (
               <TouchableOpacity
