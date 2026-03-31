@@ -381,16 +381,9 @@ export function ChatScreen({ navigation }: Props) {
           return updated;
         });
       } else {
-        setIsTyping(false);
-        if (!streamingMsgId.current) {
-          streamingMsgId.current = `wakeel-stream-${Date.now()}`;
-        }
-        setStreamingMessage({
-          id: streamingMsgId.current,
-          text,
-          sender: 'wakeel',
-          timestamp: Date.now(),
-        });
+        // Don't render partial text — just show typing indicator until complete.
+        // This gives a clean "message appears" feel instead of watching it stream.
+        setIsTyping(true);
       }
     });
   }, [onMessage]);
