@@ -603,6 +603,8 @@ export function ChatScreen({ navigation }: Props) {
     }
 
     try {
+      // prepareToRecordAsync can accept options override; call without args
+      // to use the preset passed to useAudioRecorder hook
       await audioRecorder.prepareToRecordAsync();
       audioRecorder.record();
       recordingStartTime.current = Date.now();

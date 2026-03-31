@@ -13,18 +13,12 @@ import {
 // @ts-ignore — expo-file-system/legacy exports are correct at runtime
 import { readAsStringAsync } from 'expo-file-system/legacy';
 
-// ─── Recording preset optimised for Whisper ─────────────────────────────────
-// m4a/AAC, 16 kHz, mono, 64 kbps — small files, great transcription quality.
+// ─── Recording preset ────────────────────────────────────────────────────────
+// Use the built-in HIGH_QUALITY preset directly — custom overrides were causing
+// "Failed to prepare recorder" errors on iOS. HIGH_QUALITY produces m4a/AAC
+// at 44.1kHz stereo which Whisper handles fine.
 export const WHISPER_RECORDING_PRESET: RecordingOptions = {
   ...RecordingPresets.HIGH_QUALITY,
-  extension: '.m4a',
-  sampleRate: 16000,
-  numberOfChannels: 1,
-  bitRate: 64000,
-  ios: {
-    ...RecordingPresets.HIGH_QUALITY.ios,
-    audioQuality: 96, // AudioQuality.MEDIUM
-  },
   android: {
     outputFormat: 'mpeg4',
     audioEncoder: 'aac',
