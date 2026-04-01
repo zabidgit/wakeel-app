@@ -411,6 +411,18 @@ export function SettingsScreen({ navigation }: Props) {
           </View>
         )}
 
+        {/* Help */}
+        <View style={[styles.section, styles.sectionSpaced]}>
+          <SettingsRow
+            icon="📖"
+            iconColor={colors.primaryGold}
+            iconBg="rgba(242,202,80,0.1)"
+            title="What can Wakeel do?"
+            subtitle="Features, tips & capabilities"
+            onPress={() => navigation.navigate('WhatCanWakeelDo', {})}
+          />
+        </View>
+
         {/* Clear messages & Disconnect */}
         <View style={[styles.section, styles.sectionSpaced]}>
           <SettingsRow

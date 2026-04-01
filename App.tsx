@@ -13,6 +13,8 @@ import { PeopleScreen } from './src/screens/onboarding/PeopleScreen';
 import { PersonalityScreen } from './src/screens/onboarding/PersonalityScreen';
 import { ProvisioningScreen } from './src/screens/onboarding/ProvisioningScreen';
 import { ReadyScreen } from './src/screens/onboarding/ReadyScreen';
+import { PermissionsScreen } from './src/screens/onboarding/PermissionsScreen';
+import { WhatCanWakeelDoScreen } from './src/screens/WhatCanWakeelDoScreen';
 import { ThemeProvider } from './src/ThemeContext';
 import { getPairing, savePairing } from './src/storage';
 import { getAccountToken, clearAccountToken, fetchAccountAndPairing, saveAccountInfo } from './src/auth';
@@ -77,8 +79,14 @@ export default function App() {
           <Stack.Screen name="OnboardingName" component={NameWakeelScreen} />
           <Stack.Screen name="OnboardingAbout" component={AboutYouScreen} />
           <Stack.Screen name="OnboardingPeople" component={PeopleScreen} />
+          <Stack.Screen name="OnboardingPermissions" component={PermissionsScreen} />
           <Stack.Screen name="OnboardingPersonality" component={PersonalityScreen} />
           <Stack.Screen name="OnboardingProvisioning" component={ProvisioningScreen} />
+          <Stack.Screen
+            name="WhatCanWakeelDo"
+            component={WhatCanWakeelDoScreen}
+            options={{ animation: 'slide_from_bottom' }}
+          />
           <Stack.Screen name="OnboardingReady" component={ReadyScreen} />
           <Stack.Screen name="Pairing" component={PairingScreen} />
           <Stack.Screen name="Chat" component={ChatScreen} />

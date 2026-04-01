@@ -46,6 +46,15 @@ export type RootStackParamList = {
     userTimezone: string;
     accountToken?: string;
   };
+  OnboardingPermissions: {
+    wakeclName: string;
+    userName: string;
+    userNickname: string;
+    userTimezone: string;
+    partnerName?: string;
+    familyMembers?: string[];
+    accountToken?: string;
+  };
   OnboardingPersonality: {
     wakeclName: string;
     userName: string;
@@ -56,6 +65,7 @@ export type RootStackParamList = {
     accountToken?: string;
   };
   OnboardingProvisioning: { data: OnboardingData; accountToken?: string };
+  WhatCanWakeelDo: { fromOnboarding?: boolean; wakeclName?: string } | undefined;
   OnboardingReady: { wakeclName: string };
   Pairing: undefined;
   Chat: { chatId?: string } | undefined;

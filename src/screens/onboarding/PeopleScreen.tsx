@@ -41,7 +41,7 @@ export function PeopleScreen({ navigation, route }: Props) {
 
   const handleContinue = () => {
     const filledMembers = familyMembers.filter((m) => m.trim().length > 0);
-    navigation.navigate('OnboardingPersonality', {
+    navigation.navigate('OnboardingPermissions', {
       wakeclName,
       userName,
       userNickname,
