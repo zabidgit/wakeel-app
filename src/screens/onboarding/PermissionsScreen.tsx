@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   ScrollView,
-  Alert,
   Animated,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -86,37 +85,14 @@ export function PermissionsScreen({ navigation, route }: Props) {
 
   const fadeAnim = useRef(new Animated.Value(1)).current;
 
-  const handleLocation = async () => {
-    try {
-      // expo-location: run `npx expo install expo-location` to enable
-      const Location = await import('expo-location' as any);
-      const { status } = await Location.requestForegroundPermissionsAsync();
-      setLocationStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch {
-      // Package not yet installed — show native alert
-      Alert.alert(
-        'Location Access',
-        `${wakeclName} will ask for location permission when you first use a location feature.`,
-        [{ text: 'Got it' }],
-      );
-      setLocationStatus('granted'); // Treat as acknowledged
-    }
+  // Location & Calendar: mark acknowledged here — iOS will prompt natively
+  // the first time each feature is used (priming UX pattern)
+  const handleLocation = () => {
+    setLocationStatus('granted');
   };
 
-  const handleCalendar = async () => {
-    try {
-      // expo-calendar: run `npx expo install expo-calendar` to enable
-      const Calendar = await import('expo-calendar' as any);
-      const { status } = await Calendar.requestCalendarPermissionsAsync();
-      setCalendarStatus(status === 'granted' ? 'granted' : 'denied');
-    } catch {
-      Alert.alert(
-        'Calendar Access',
-        `${wakeclName} will ask for calendar permission when you first use scheduling features.`,
-        [{ text: 'Got it' }],
-      );
-      setCalendarStatus('granted');
-    }
+  const handleCalendar = () => {
+    setCalendarStatus('granted');
   };
 
   const handleReminders = async () => {
