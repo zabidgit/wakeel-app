@@ -173,6 +173,8 @@ export function ChatScreen({ navigation }: Props) {
   const flatListRef = useRef<FlatList>(null);
   const pushTokenSent = useRef(false);
   const activeChatRef = useRef<ChatInfo | null>(null);
+  // Track latest stored message timestamp to filter out history replays on reconnect
+  const maxStoredTsRef = useRef<number>(0);
   const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
   const insets = useSafeAreaInsets();
 
@@ -206,12 +208,21 @@ export function ChatScreen({ navigation }: Props) {
       // Load messages for active chat
       const saved = await getChatMessages(firstChat.sessionKey);
       if (saved.length > 0) {
-        setMessages(dedupeAndSort(saved));
+        const sorted = dedupeAndSort(saved);
+        setMessages(sorted);
+        // Track latest timestamp so we can filter out history replays on WebSocket reconnect
+        if (sorted.length > 0) {
+          maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
+        }
       } else {
         // Try legacy messages (first time migration)
         const legacy = await getMessages();
         if (legacy.length > 0) {
-          setMessages(dedupeAndSort(legacy));
+          const sorted = dedupeAndSort(legacy);
+          setMessages(sorted);
+          if (sorted.length > 0) {
+            maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
+          }
         }
       }
     })();
@@ -245,19 +256,34 @@ export function ChatScreen({ navigation }: Props) {
   useEffect(() => {
     onMessage((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => {
       if (isFinal) {
+        // Skip history replays: if server timestamp is at or before our latest stored message,
+        // this is a replay of something we already have — don't add it again
+        const msgTs = (serverTs && !isNaN(serverTs)) ? serverTs : Date.now();
+        if (serverTs && serverTs <= maxStoredTsRef.current) {
+          // Clear streaming indicator for replayed final events too
+          setIsTyping(false);
+          setStreamingMessage(null);
+          streamingMsgId.current = null;
+          return;
+        }
+
         setIsTyping(false);
         setStreamingMessage(null);
         const streamId = streamingMsgId.current;
         streamingMsgId.current = null;
 
         const finalMsg: Message = {
-          // Use server-provided ID so history replays on reconnect get deduped
+          // Use server-provided ID so any remaining replays get deduped
           id: serverId || `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
-          // Use server-provided timestamp so ordering survives reconnects
-          timestamp: (serverTs && !isNaN(serverTs)) ? serverTs : Date.now(),
+          timestamp: msgTs,
         };
+
+        // Update our replay filter threshold
+        if (msgTs > maxStoredTsRef.current) {
+          maxStoredTsRef.current = msgTs;
+        }
 
         setMessages(prev => {
           let base = streamId ? prev.filter(m => m.id !== streamId) : prev;
@@ -301,7 +327,14 @@ export function ChatScreen({ navigation }: Props) {
       const reload = async () => {
         if (!activeChat) return;
         const chatMsgs = await getChatMessages(activeChat.sessionKey);
-        setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
+        if (chatMsgs.length > 0) {
+          const sorted = dedupeAndSort(chatMsgs);
+          setMessages(sorted);
+          maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
+        } else {
+          setMessages([]);
+          maxStoredTsRef.current = 0;
+        }
       };
       reload();
     }, [activeChat?.sessionKey])
@@ -326,7 +359,14 @@ export function ChatScreen({ navigation }: Props) {
 
     // Load new chat's messages
     const chatMsgs = await getChatMessages(chat.sessionKey);
-    setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
+    if (chatMsgs.length > 0) {
+      const sorted = dedupeAndSort(chatMsgs);
+      setMessages(sorted);
+      maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
+    } else {
+      setMessages([]);
+      maxStoredTsRef.current = 0;
+    }
   }, [activeChat, messages]);
 
   const handleNewChat = useCallback(() => {
