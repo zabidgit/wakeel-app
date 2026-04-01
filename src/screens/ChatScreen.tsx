@@ -232,7 +232,7 @@ export function ChatScreen({ navigation }: Props) {
       registerForPushNotifications().then((token) => {
         if (token) {
           sendPushToken(token);
-          registerTokenWithPushServer(token);
+          registerTokenWithPushServer(token, undefined, pairingData?.token);
         }
       });
     }

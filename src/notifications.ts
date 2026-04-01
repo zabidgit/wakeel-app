@@ -57,13 +57,16 @@ const PUSH_AUTH_TOKEN = '2b8f265e6f5e8ac1f459e126582ba21dfff39a8b02bf5a2a';
 export async function registerTokenWithPushServer(
   token: string,
   deviceId?: string,
+  gatewayToken?: string,
 ): Promise<boolean> {
   try {
     const res = await fetch(`${PUSH_SERVER_URL}/push/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${PUSH_AUTH_TOKEN}`,
+        // Use gateway token when available so server can identify this client.
+        // Fall back to shared PUSH_AUTH_TOKEN for unprovisioned devices.
+        'Authorization': `Bearer ${gatewayToken || PUSH_AUTH_TOKEN}`,
       },
       body: JSON.stringify({
         token,
