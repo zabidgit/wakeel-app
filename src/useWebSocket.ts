@@ -15,7 +15,7 @@ interface UseWebSocketReturn {
   sendPushToken: (token: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
-  onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
+  onMessage: (handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => void;
 }
 
 let reqId = 0;
@@ -24,7 +24,7 @@ function nextId(): string { return `r${++reqId}`; }
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pairingRef = useRef<PairingData | null>(null);
-  const handlerRef = useRef<((text: string, isFinal: boolean) => void) | null>(null);
+  const handlerRef = useRef<((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) | null>(null);
   const streamRef = useRef('');
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -151,7 +151,13 @@ export function useWebSocket(): UseWebSocketReturn {
             }
             pendingDeltaRef.current = null;
             streamRef.current = '';
-            handlerRef.current?.(text, true);
+            // Pass server-side id + createdAt so ChatScreen can deduplicate replays
+            const serverId: string | undefined = msg.id || p.message?.id;
+            const serverTsRaw = p.message?.createdAt;
+            const serverTs: number | undefined = serverTsRaw
+              ? (typeof serverTsRaw === 'number' ? serverTsRaw : Date.parse(serverTsRaw))
+              : undefined;
+            handlerRef.current?.(text, true, serverId, serverTs);
 
             // --- Background local notification (Issue 3) ---
             if (appStateRef.current !== 'active') {
@@ -234,7 +240,7 @@ export function useWebSocket(): UseWebSocketReturn {
     }
   }, []);
 
-  const onMessage = useCallback((handler: (text: string, isFinal: boolean) => void) => {
+  const onMessage = useCallback((handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => {
     handlerRef.current = handler;
   }, []);
 

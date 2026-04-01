@@ -243,7 +243,7 @@ export function ChatScreen({ navigation }: Props) {
 
   // Handle incoming messages
   useEffect(() => {
-    onMessage((text: string, isFinal: boolean) => {
+    onMessage((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => {
       if (isFinal) {
         setIsTyping(false);
         setStreamingMessage(null);
@@ -251,10 +251,12 @@ export function ChatScreen({ navigation }: Props) {
         streamingMsgId.current = null;
 
         const finalMsg: Message = {
-          id: `wakeel-${Date.now()}-${Math.random()}`,
+          // Use server-provided ID so history replays on reconnect get deduped
+          id: serverId || `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
-          timestamp: Date.now(),
+          // Use server-provided timestamp so ordering survives reconnects
+          timestamp: (serverTs && !isNaN(serverTs)) ? serverTs : Date.now(),
         };
 
         setMessages(prev => {
