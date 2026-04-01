@@ -141,6 +141,8 @@ export function useWebSocket(): UseWebSocketReturn {
           if (p.state === 'delta') {
             // Gateway sends accumulated text, not chunks — use = not +=
             streamRef.current = text;
+            // Don't stream internal agent signals
+            if (text.trim() === 'NO_REPLY' || text.trim() === 'HEARTBEAT_OK') return;
             // Throttled: batch rapid deltas into ~50ms UI updates
             throttledDeltaHandler(streamRef.current);
           } else if (p.state === 'final') {
@@ -151,6 +153,11 @@ export function useWebSocket(): UseWebSocketReturn {
             }
             pendingDeltaRef.current = null;
             streamRef.current = '';
+
+            // Suppress internal agent signals — same filter as push relay
+            const trimmed = text.trim();
+            if (trimmed === 'NO_REPLY' || trimmed === 'HEARTBEAT_OK') return;
+
             // Pass server-side id + createdAt so ChatScreen can deduplicate replays
             const serverId: string | undefined = msg.id || p.message?.id;
             const serverTsRaw = p.message?.createdAt;
