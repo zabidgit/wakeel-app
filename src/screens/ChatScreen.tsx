@@ -37,7 +37,7 @@ import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
-import { consumePendingNotifMessage } from '../../App';
+import { consumePendingNotifMessage } from '../notificationCapture';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
