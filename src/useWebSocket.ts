@@ -160,7 +160,7 @@ export function useWebSocket(): UseWebSocketReturn {
 
             // Pass server-side id + createdAt so ChatScreen can deduplicate replays
             const serverId: string | undefined = msg.id || p.message?.id;
-            const serverTsRaw = p.message?.createdAt;
+            const serverTsRaw = p.message?.timestamp;
             const serverTs: number | undefined = serverTsRaw
               ? (typeof serverTsRaw === 'number' ? serverTsRaw : Date.parse(serverTsRaw))
               : undefined;

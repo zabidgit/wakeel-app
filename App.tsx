@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar } from 'react-native';
+import { StatusBar, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Updates from 'expo-updates';
 import { PairingScreen } from './src/screens/PairingScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -22,8 +23,33 @@ import { RootStackParamList } from './src/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+// ─── OTA Update Checker ─────────────────────────────────────────────────────
+async function checkForOTAUpdate() {
+  if (__DEV__) return; // Skip in development
+  try {
+    const update = await Updates.checkForUpdateAsync();
+    if (update.isAvailable) {
+      await Updates.fetchUpdateAsync();
+      Alert.alert(
+        'Update Available',
+        'Wakeel has been updated. Restart to apply?',
+        [
+          { text: 'Later', style: 'cancel' },
+          { text: 'Restart', onPress: () => Updates.reloadAsync() },
+        ]
+      );
+    }
+  } catch (e) {
+    // Silent fail — don't block the app
+    console.log('OTA check failed:', e);
+  }
+}
+
 export default function App() {
   const [initialRoute, setInitialRoute] = useState<keyof RootStackParamList | null>(null);
+
+  // Check for OTA updates on every app launch
+  useEffect(() => { checkForOTAUpdate(); }, []);
 
   useEffect(() => {
     (async () => {

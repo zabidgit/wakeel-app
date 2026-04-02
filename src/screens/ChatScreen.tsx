@@ -46,7 +46,36 @@ type Props = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
+// Delivery queue re-sends arrive with a new random ID but identical content.
+// Guard against this: if Wakeel already sent this exact text within the last hour, it's a re-delivery.
+const CONTENT_DEDUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+// Repair timestamps from message IDs.
+// Message IDs contain the original Date.now() at creation: "user-1775082043000-0.xyz" or "wakeel-1775082043000-0.xyz".
+// A previous OTA stored Wakeel messages with server timestamps (different clock) which broke ordering.
+// This extracts the reliable receipt-time timestamp from the ID to repair corrupted entries.
+function repairTimestamp(msg: Message): Message {
+  const match = msg.id.match(/^(?:user|wakeel)-(\d{13,})-/);
+  if (match) {
+    const idTs = parseInt(match[1], 10);
+    if (!isNaN(idTs) && idTs > 1700000000000 && idTs < 1900000000000) {
+      if (msg.timestamp !== idTs) {
+        return { ...msg, timestamp: idTs };
+      }
+    }
+  }
+  return msg;
+}
+
 function insertSorted(arr: Message[], msg: Message): Message[] {
+  // Content dedup: same Wakeel text within 1 hour = delivery queue re-send, not a new message
+  if (msg.sender === 'wakeel' && arr.some(m =>
+    m.sender === 'wakeel' &&
+    m.text === msg.text &&
+    Math.abs(m.timestamp - msg.timestamp) < CONTENT_DEDUP_WINDOW_MS
+  )) {
+    return arr;
+  }
   const filtered = arr.filter(m => m.id !== msg.id);
   let lo = 0, hi = filtered.length;
   while (lo < hi) {
@@ -60,11 +89,31 @@ function insertSorted(arr: Message[], msg: Message): Message[] {
 }
 
 function dedupeAndSort(msgs: Message[]): Message[] {
+  // Step 0: Repair any timestamps corrupted by server-time storage
+  const repaired = msgs.map(repairTimestamp);
+  // Step 1: deduplicate by ID (original behaviour)
   const seen = new Map<string, Message>();
-  for (const m of msgs) {
+  for (const m of repaired) {
     seen.set(m.id, m);
   }
-  return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
+  // Step 2: deduplicate Wakeel messages by content within a 1-hour window.
+  // Delivery queue re-sends produce a new random ID but identical text — this catches those.
+  // Sort first so we always keep the earliest (original) copy.
+  const sorted = Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
+  const result: Message[] = [];
+  for (const m of sorted) {
+    if (m.sender === 'wakeel') {
+      const isDupe = result.some(r =>
+        r.sender === 'wakeel' &&
+        r.text === m.text &&
+        Math.abs(r.timestamp - m.timestamp) < CONTENT_DEDUP_WINDOW_MS
+      );
+      if (!isDupe) result.push(m);
+    } else {
+      result.push(m);
+    }
+  }
+  return result;
 }
 
 // ─── Status Dot ───────────────────────────────────────────────────────────────
@@ -84,6 +133,7 @@ function StatusDot({ status }: { status: ConnectionStatus }) {
     <View style={styles.statusRow}>
       <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
       <Text style={styles.statusText}>{label}</Text>
+      <Text style={[styles.statusText, { opacity: 0.4, fontSize: 9, marginLeft: 4 }]}>v6</Text>
     </View>
   );
 }
@@ -158,6 +208,7 @@ export function ChatScreen({ navigation }: Props) {
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
   const [pairingData, setPairingData] = useState<{ url: string; token: string } | null>(null);
+  const pairingDataRef = useRef<{ url: string; token: string } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
 
@@ -175,6 +226,10 @@ export function ChatScreen({ navigation }: Props) {
   const activeChatRef = useRef<ChatInfo | null>(null);
   // Track latest stored message timestamp to filter out history replays on reconnect
   const maxStoredTsRef = useRef<number>(0);
+  // Guards against delivery-queue messages saving to storage before history has loaded.
+  // Without this, a fast delivery-queue fire can overwrite the full message history
+  // with just the one queued message before AsyncStorage finishes reading.
+  const storageLoadedRef = useRef<boolean>(false);
   const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
   const insets = useSafeAreaInsets();
 
@@ -193,7 +248,9 @@ export function ChatScreen({ navigation }: Props) {
       }
 
       setWakeelName(pairing.name || 'Wakeel');
-      setPairingData({ url: pairing.url, token: pairing.token });
+      const pd = { url: pairing.url, token: pairing.token };
+      pairingDataRef.current = pd;
+      setPairingData(pd);
       connect(pairing);
 
       // Load chats
@@ -205,26 +262,29 @@ export function ChatScreen({ navigation }: Props) {
       setActiveChat(firstChat);
       activeChatRef.current = firstChat;
 
-      // Load messages for active chat
+      // Load messages for active chat.
+      // IMPORTANT: use a functional setMessages so we can merge with any messages that
+      // arrived via the delivery queue before AsyncStorage finished reading.  Without this
+      // merge the delivery-queue message saves [just_one_msg] to storage, overwriting the
+      // full history.  We also persist the merged result immediately so storage is repaired.
       const saved = await getChatMessages(firstChat.sessionKey);
-      if (saved.length > 0) {
-        const sorted = dedupeAndSort(saved);
-        setMessages(sorted);
-        // Track latest timestamp so we can filter out history replays on WebSocket reconnect
-        if (sorted.length > 0) {
-          maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
+      const rawSaved = saved.length > 0 ? saved : await getMessages(); // fallback: legacy key
+      const sortedFromStorage = dedupeAndSort(rawSaved);
+      setMessages(prev => {
+        const merged = dedupeAndSort([...sortedFromStorage, ...prev]);
+        if (merged.length > 0) {
+          saveChatMessages(firstChat.sessionKey, merged); // repair storage immediately
         }
-      } else {
-        // Try legacy messages (first time migration)
-        const legacy = await getMessages();
-        if (legacy.length > 0) {
-          const sorted = dedupeAndSort(legacy);
-          setMessages(sorted);
-          if (sorted.length > 0) {
-            maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
-          }
+        // Mark storage as loaded — onMessage saves are now safe
+        storageLoadedRef.current = true;
+        if (merged.length > 0) {
+          maxStoredTsRef.current = Math.max(
+            ...merged.map(m => m.timestamp),
+            maxStoredTsRef.current,
+          );
         }
-      }
+        return merged;
+      });
     })();
 
     clearBadge();
@@ -243,7 +303,7 @@ export function ChatScreen({ navigation }: Props) {
       registerForPushNotifications().then((token) => {
         if (token) {
           sendPushToken(token);
-          registerTokenWithPushServer(token, undefined, pairingData?.token);
+          registerTokenWithPushServer(token, undefined, pairingDataRef.current?.token);
         }
       });
     }
@@ -256,16 +316,10 @@ export function ChatScreen({ navigation }: Props) {
   useEffect(() => {
     onMessage((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => {
       if (isFinal) {
-        // Skip history replays: if server timestamp is at or before our latest stored message,
-        // this is a replay of something we already have — don't add it again
-        const msgTs = (serverTs && !isNaN(serverTs)) ? serverTs : Date.now();
-        if (serverTs && serverTs <= maxStoredTsRef.current) {
-          // Clear streaming indicator for replayed final events too
-          setIsTyping(false);
-          setStreamingMessage(null);
-          streamingMsgId.current = null;
-          return;
-        }
+        // Always use phone receipt time — server timestamps use a different clock which
+        // causes messages to sort out of conversation order (clock skew).
+        // Delivery-queue duplicates are caught by content dedup in insertSorted instead.
+        const msgTs = Date.now();
 
         setIsTyping(false);
         setStreamingMessage(null);
@@ -288,12 +342,15 @@ export function ChatScreen({ navigation }: Props) {
         setMessages(prev => {
           let base = streamId ? prev.filter(m => m.id !== streamId) : prev;
           const updated = insertSorted(base, finalMsg);
-          // Save to active chat's storage
-          const currentChat = activeChatRef.current;
-          if (currentChat) {
-            saveChatMessages(currentChat.sessionKey, updated);
-          } else {
-            saveMessages(updated);
+          // Only persist once storage has fully loaded — writing before load completes
+          // overwrites the full history with just this one message (race condition).
+          if (storageLoadedRef.current) {
+            const currentChat = activeChatRef.current;
+            if (currentChat) {
+              saveChatMessages(currentChat.sessionKey, updated);
+            } else {
+              saveMessages(updated);
+            }
           }
           return updated;
         });
@@ -330,6 +387,8 @@ export function ChatScreen({ navigation }: Props) {
         if (chatMsgs.length > 0) {
           const sorted = dedupeAndSort(chatMsgs);
           setMessages(sorted);
+          // Persist repaired timestamps so they survive future restarts
+          await saveChatMessages(activeChat.sessionKey, sorted);
           maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
         } else {
           setMessages([]);
@@ -357,7 +416,8 @@ export function ChatScreen({ navigation }: Props) {
     streamingMsgId.current = null;
     setIsTyping(false);
 
-    // Load new chat's messages
+    // Load new chat's messages (simple replace — no delivery queue race here)
+    storageLoadedRef.current = false;
     const chatMsgs = await getChatMessages(chat.sessionKey);
     if (chatMsgs.length > 0) {
       const sorted = dedupeAndSort(chatMsgs);
@@ -367,6 +427,7 @@ export function ChatScreen({ navigation }: Props) {
       setMessages([]);
       maxStoredTsRef.current = 0;
     }
+    storageLoadedRef.current = true;
   }, [activeChat, messages]);
 
   const handleNewChat = useCallback(() => {
