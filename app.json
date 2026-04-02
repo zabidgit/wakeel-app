@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "96",
+      "buildNumber": "98",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -49,6 +49,12 @@
       }
     },
     "owner": "getwakeel",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/621af8c4-fdbd-492d-bf22-2db15c196ebe"
+    },
     "plugins": [
       [
         "expo-notifications",
