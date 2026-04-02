@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "91",
+      "buildNumber": "94",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -53,7 +53,8 @@
       "policy": "appVersion"
     },
     "updates": {
-      "url": "https://u.expo.dev/621af8c4-fdbd-492d-bf22-2db15c196ebe"
+      "url": "https://u.expo.dev/621af8c4-fdbd-492d-bf22-2db15c196ebe",
+      "enabled": false
     },
     "plugins": [
       [
