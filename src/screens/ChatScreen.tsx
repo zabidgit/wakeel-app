@@ -35,6 +35,7 @@ import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
+import * as Notifications from 'expo-notifications';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
@@ -289,10 +290,59 @@ export function ChatScreen({ navigation }: Props) {
 
     clearBadge();
 
-    const sub = addNotificationResponseReceivedListener(() => {
+    const sub = addNotificationResponseReceivedListener((response) => {
       clearBadge();
-      flatListRef.current?.scrollToEnd({ animated: true });
+      // Inject the notification message into chat immediately so the user sees it
+      // before the WebSocket reconnects. Content dedup catches the duplicate later.
+      const fullText = response.notification?.request?.content?.data?.fullText;
+      if (fullText && typeof fullText === 'string') {
+        const trimmed = fullText.trim();
+        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
+          const notifMsg: Message = {
+            id: `notif-${Date.now()}-${Math.random()}`,
+            text: trimmed,
+            sender: 'wakeel' as const,
+            timestamp: Date.now(),
+          };
+          setMessages(prev => {
+            const updated = insertSorted(prev, notifMsg);
+            const currentChat = activeChatRef.current;
+            if (storageLoadedRef.current && currentChat) {
+              saveChatMessages(currentChat.sessionKey, updated);
+            }
+            return updated;
+          });
+        }
+      }
+      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
+
+    // Handle cold-launch from notification tap (app was killed)
+    Notifications.getLastNotificationResponseAsync().then((response) => {
+      if (!response) return;
+      const fullText = response.notification?.request?.content?.data?.fullText;
+      if (fullText && typeof fullText === 'string') {
+        const trimmed = fullText.trim();
+        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
+          const notifMsg: Message = {
+            id: `notif-${Date.now()}-${Math.random()}`,
+            text: trimmed,
+            sender: 'wakeel' as const,
+            timestamp: Date.now(),
+          };
+          setMessages(prev => {
+            const updated = insertSorted(prev, notifMsg);
+            const currentChat = activeChatRef.current;
+            if (storageLoadedRef.current && currentChat) {
+              saveChatMessages(currentChat.sessionKey, updated);
+            }
+            return updated;
+          });
+          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
+        }
+      }
+    });
+
     return () => sub.remove();
   }, []);
 
