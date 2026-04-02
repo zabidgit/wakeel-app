@@ -2,7 +2,6 @@ import React, { useEffect, useState } from 'react';
 import { StatusBar, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import * as Updates from 'expo-updates';
 import './src/notificationCapture'; // Module-level setup — must import before components
 import { PairingScreen } from './src/screens/PairingScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
@@ -24,26 +23,10 @@ import { RootStackParamList } from './src/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
-// ─── OTA Update Checker ─────────────────────────────────────────────────────
+// ─── OTA Update Checker (disabled — expo-updates off in this build) ─────────
 async function checkForOTAUpdate() {
-  if (__DEV__) return; // Skip in development
-  try {
-    const update = await Updates.checkForUpdateAsync();
-    if (update.isAvailable) {
-      await Updates.fetchUpdateAsync();
-      Alert.alert(
-        'Update Available',
-        'Wakeel has been updated. Restart to apply?',
-        [
-          { text: 'Later', style: 'cancel' },
-          { text: 'Restart', onPress: () => Updates.reloadAsync() },
-        ]
-      );
-    }
-  } catch (e) {
-    // Silent fail — don't block the app
-    console.log('OTA check failed:', e);
-  }
+  // expo-updates disabled to break error recovery crash loop
+  // Will re-enable once device Keychain state is cleared
 }
 
 export default function App() {
