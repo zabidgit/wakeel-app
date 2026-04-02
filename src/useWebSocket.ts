@@ -9,6 +9,8 @@ export interface Attachment {
   fileName: string;
 }
 
+const MAX_RECONNECT_ATTEMPTS = 5;
+
 interface UseWebSocketReturn {
   status: ConnectionStatus;
   send: (message: string, attachments?: Attachment[], sessionKey?: string) => void;
@@ -16,6 +18,7 @@ interface UseWebSocketReturn {
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
   onMessage: (handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => void;
+  onConnectionFailed: (handler: () => void) => void;
 }
 
 let reqId = 0;
@@ -25,6 +28,7 @@ export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pairingRef = useRef<PairingData | null>(null);
   const handlerRef = useRef<((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) | null>(null);
+  const connectionFailedRef = useRef<(() => void) | null>(null);
   const streamRef = useRef('');
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -191,8 +195,13 @@ export function useWebSocket(): UseWebSocketReturn {
       if (throttleTimerRef.current) { clearTimeout(throttleTimerRef.current); throttleTimerRef.current = null; }
       pendingDeltaRef.current = null;
       if (pairingRef.current) {
-        const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         attemptRef.current++;
+        if (attemptRef.current >= MAX_RECONNECT_ATTEMPTS) {
+          // Container likely gone — notify the app to reset
+          connectionFailedRef.current?.();
+          return;
+        }
+        const delay = Math.min(1000 * Math.pow(2, attemptRef.current), 30000);
         reconnectRef.current = setTimeout(() => {
           if (pairingRef.current) doConnect(pairingRef.current);
         }, delay);
@@ -247,11 +256,15 @@ export function useWebSocket(): UseWebSocketReturn {
     }
   }, []);
 
+  const onConnectionFailed = useCallback((handler: () => void) => {
+    connectionFailedRef.current = handler;
+  }, []);
+
   const onMessage = useCallback((handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => {
     handlerRef.current = handler;
   }, []);
 
   useEffect(() => { return () => cleanup(); }, [cleanup]);
 
-  return { status, send, sendPushToken, connect, disconnect, onMessage };
+  return { status, send, sendPushToken, connect, disconnect, onMessage, onConnectionFailed };
 }

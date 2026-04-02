@@ -20,6 +20,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { colors, spacing } from '../theme';
 import {
   getPairing,
+  clearPairing,
   saveMessages,
   getMessages,
   getChats,
@@ -35,8 +36,8 @@ import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
-import * as Notifications from 'expo-notifications';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
+import { consumePendingNotifMessage } from '../../App';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 
 const owlLogo = require('../../assets/owl-logo.png');
@@ -231,7 +232,7 @@ export function ChatScreen({ navigation }: Props) {
   // Without this, a fast delivery-queue fire can overwrite the full message history
   // with just the one queued message before AsyncStorage finishes reading.
   const storageLoadedRef = useRef<boolean>(false);
-  const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
+  const { status, send, sendPushToken, connect, onMessage, onConnectionFailed } = useWebSocket();
   const insets = useSafeAreaInsets();
 
   // Keep ref in sync for use in callbacks
@@ -290,58 +291,58 @@ export function ChatScreen({ navigation }: Props) {
 
     clearBadge();
 
-    const sub = addNotificationResponseReceivedListener((response) => {
+    // If WebSocket can't connect after multiple retries, container is likely gone
+    onConnectionFailed(async () => {
+      await clearPairing();
+      navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
+    });
+
+    // Notification tap handling is now in App.tsx (module-level, fires before mount).
+    // Here we just consume any captured message and inject it into chat.
+    const sub = addNotificationResponseReceivedListener(() => {
       clearBadge();
-      // Inject the notification message into chat immediately so the user sees it
-      // before the WebSocket reconnects. Content dedup catches the duplicate later.
-      const fullText = response.notification?.request?.content?.data?.fullText;
-      if (fullText && typeof fullText === 'string') {
-        const trimmed = fullText.trim();
-        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
-          const notifMsg: Message = {
-            id: `notif-${Date.now()}-${Math.random()}`,
-            text: trimmed,
-            sender: 'wakeel' as const,
-            timestamp: Date.now(),
-          };
-          setMessages(prev => {
-            const updated = insertSorted(prev, notifMsg);
-            const currentChat = activeChatRef.current;
-            if (storageLoadedRef.current && currentChat) {
-              saveChatMessages(currentChat.sessionKey, updated);
-            }
-            return updated;
-          });
-        }
+      const pending = consumePendingNotifMessage();
+      if (pending) {
+        const notifMsg: Message = {
+          id: `notif-${Date.now()}-${Math.random()}`,
+          text: pending,
+          sender: 'wakeel' as const,
+          timestamp: Date.now(),
+        };
+        setMessages(prev => {
+          const updated = insertSorted(prev, notifMsg);
+          const currentChat = activeChatRef.current;
+          if (storageLoadedRef.current && currentChat) {
+            saveChatMessages(currentChat.sessionKey, updated);
+          }
+          return updated;
+        });
       }
       setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
     });
 
-    // Handle cold-launch from notification tap (app was killed)
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const fullText = response.notification?.request?.content?.data?.fullText;
-      if (fullText && typeof fullText === 'string') {
-        const trimmed = fullText.trim();
-        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
-          const notifMsg: Message = {
-            id: `notif-${Date.now()}-${Math.random()}`,
-            text: trimmed,
-            sender: 'wakeel' as const,
-            timestamp: Date.now(),
-          };
-          setMessages(prev => {
-            const updated = insertSorted(prev, notifMsg);
-            const currentChat = activeChatRef.current;
-            if (storageLoadedRef.current && currentChat) {
-              saveChatMessages(currentChat.sessionKey, updated);
-            }
-            return updated;
-          });
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
-        }
-      }
-    });
+    // Also check for cold-launch notification (captured at module level in App.tsx)
+    const coldLaunchText = consumePendingNotifMessage();
+    if (coldLaunchText) {
+      const notifMsg: Message = {
+        id: `notif-${Date.now()}-${Math.random()}`,
+        text: coldLaunchText,
+        sender: 'wakeel' as const,
+        timestamp: Date.now(),
+      };
+      // Use setTimeout to ensure state is initialized
+      setTimeout(() => {
+        setMessages(prev => {
+          const updated = insertSorted(prev, notifMsg);
+          const currentChat = activeChatRef.current;
+          if (storageLoadedRef.current && currentChat) {
+            saveChatMessages(currentChat.sessionKey, updated);
+          }
+          return updated;
+        });
+        flatListRef.current?.scrollToEnd({ animated: true });
+      }, 500);
+    }
 
     return () => sub.remove();
   }, []);

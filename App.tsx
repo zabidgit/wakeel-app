@@ -3,6 +3,7 @@ import { StatusBar, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Updates from 'expo-updates';
+import * as Notifications from 'expo-notifications';
 import { PairingScreen } from './src/screens/PairingScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -22,6 +23,36 @@ import { getAccountToken, clearAccountToken, fetchAccountAndPairing, saveAccount
 import { RootStackParamList } from './src/types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
+
+// ─── Module-level notification capture ──────────────────────────────────────
+// Must be set up BEFORE any component mounts — iOS consumes the notification
+// response immediately on launch, and component-level listeners miss it.
+let _pendingNotifText: string | null = null;
+
+/** Get and clear any message captured from a notification tap at launch */
+export function consumePendingNotifMessage(): string | null {
+  const text = _pendingNotifText;
+  _pendingNotifText = null;
+  return text;
+}
+
+function captureNotifText(response: Notifications.NotificationResponse) {
+  const fullText = response.notification?.request?.content?.data?.fullText;
+  if (fullText && typeof fullText === 'string') {
+    const trimmed = fullText.trim();
+    if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
+      _pendingNotifText = trimmed;
+    }
+  }
+}
+
+// Fire immediately at module load — catches cold-launch taps
+Notifications.getLastNotificationResponseAsync().then((response) => {
+  if (response) captureNotifText(response);
+});
+
+// Also listen for taps while the app is running (background → foreground)
+Notifications.addNotificationResponseReceivedListener(captureNotifText);
 
 // ─── OTA Update Checker ─────────────────────────────────────────────────────
 async function checkForOTAUpdate() {

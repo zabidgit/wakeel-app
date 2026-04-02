@@ -22,7 +22,7 @@
         ],
         "ITSAppUsesNonExemptEncryption": false
       },
-      "buildNumber": "89",
+      "buildNumber": "90",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
