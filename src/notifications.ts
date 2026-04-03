@@ -49,25 +49,24 @@ export async function registerForPushNotifications(): Promise<string | null> {
 
 // Push server base URL (same as media upload server)
 const PUSH_SERVER_URL = 'https://app.getwakeel.app';
-const PUSH_AUTH_TOKEN = '2b8f265e6f5e8ac1f459e126582ba21dfff39a8b02bf5a2a';
 
 /**
  * Register Expo push token with the push server so it can send
  * true push notifications even when the app is fully closed.
+ * Requires a valid gateway token — unprovisioned devices cannot register.
  */
 export async function registerTokenWithPushServer(
   token: string,
   deviceId?: string,
   gatewayToken?: string,
 ): Promise<boolean> {
+  if (!gatewayToken) return false; // No auth = no registration
   try {
     const res = await fetch(`${PUSH_SERVER_URL}/push/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        // Use gateway token when available so server can identify this client.
-        // Fall back to shared PUSH_AUTH_TOKEN for unprovisioned devices.
-        'Authorization': `Bearer ${gatewayToken || PUSH_AUTH_TOKEN}`,
+        'Authorization': `Bearer ${gatewayToken}`,
       },
       body: JSON.stringify({
         token,

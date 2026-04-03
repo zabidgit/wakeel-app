@@ -2,8 +2,7 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { ConnectionStatus, PairingData } from './types';
-// Device identity disabled — causes async race condition in doConnect
-// import { loadOrCreateDeviceIdentity, signPayload, buildDeviceAuthPayloadV3, DeviceIdentity } from './deviceIdentity';
+
 
 export interface Attachment {
   data: string;      // base64
