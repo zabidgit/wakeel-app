@@ -30,7 +30,7 @@
         "NSCalendarsFullAccessUsageDescription": "Wakeel needs full calendar access to read and create events on your behalf.",
         "NSRemindersFullAccessUsageDescription": "Wakeel needs full reminders access to read and create reminders on your behalf."
       },
-      "buildNumber": "86",
+      "buildNumber": "100",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
