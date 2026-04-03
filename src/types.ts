@@ -2,6 +2,8 @@ export interface PairingData {
   url: string;
   token: string;
   name?: string;
+  bootstrapToken?: string;
+  deviceToken?: string;
 }
 
 export interface Message {
@@ -37,23 +39,15 @@ export type OnboardingData = {
 export type RootStackParamList = {
   Auth: undefined;
   Welcome: undefined;
-  OnboardingName: { accountToken?: string } | undefined;
-  OnboardingAbout: { wakeclName: string; accountToken?: string };
+  OnboardingName: { accountToken?: string; account?: { provider: string; email?: string; plan?: string } } | undefined;
+  OnboardingAbout: { wakeclName: string; accountToken?: string; account?: { provider: string; email?: string; plan?: string } };
   OnboardingPeople: {
     wakeclName: string;
     userName: string;
     userNickname: string;
     userTimezone: string;
     accountToken?: string;
-  };
-  OnboardingPermissions: {
-    wakeclName: string;
-    userName: string;
-    userNickname: string;
-    userTimezone: string;
-    partnerName?: string;
-    familyMembers?: string[];
-    accountToken?: string;
+    account?: { provider: string; email?: string; plan?: string };
   };
   OnboardingPersonality: {
     wakeclName: string;
@@ -63,9 +57,9 @@ export type RootStackParamList = {
     partnerName?: string;
     familyMembers?: string[];
     accountToken?: string;
+    account?: { provider: string; email?: string; plan?: string };
   };
-  OnboardingProvisioning: { data: OnboardingData; accountToken?: string };
-  WhatCanWakeelDo: { fromOnboarding?: boolean; wakeclName?: string } | undefined;
+  OnboardingProvisioning: { data: OnboardingData; accountToken?: string; account?: { provider: string; email?: string; plan?: string } };
   OnboardingReady: { wakeclName: string };
   Pairing: undefined;
   Chat: { chatId?: string } | undefined;

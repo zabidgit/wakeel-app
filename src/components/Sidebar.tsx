@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useMemo } from 'react';
 import {
   View,
   Text,
@@ -11,7 +11,9 @@ import {
   Alert,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { colors, spacing } from '../theme';
+import { useTheme } from '../ThemeContext';
+import { getThemeColors } from '../theme';
+import { spacing } from '../theme';
 import { ChatInfo } from '../types';
 
 const SIDEBAR_WIDTH = Dimensions.get('window').width * 0.75;
@@ -39,6 +41,9 @@ export function Sidebar({
   onRenameChat,
   onSettings,
 }: SidebarProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const slideAnim = useRef(new Animated.Value(-SIDEBAR_WIDTH)).current;
   const overlayAnim = useRef(new Animated.Value(0)).current;
   const insets = useSafeAreaInsets();
@@ -164,7 +169,7 @@ export function Sidebar({
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   overlay: {
     ...StyleSheet.absoluteFillObject,
     backgroundColor: '#000',
@@ -218,7 +223,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   chatItemActive: {
-    backgroundColor: 'rgba(242, 202, 80, 0.1)',
+    backgroundColor: 'rgba(184, 134, 11, 0.1)',
   },
   chatEmoji: {
     fontSize: 18,

@@ -2,11 +2,19 @@ import { useRef, useState, useCallback, useEffect } from 'react';
 import { AppState, AppStateStatus } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { ConnectionStatus, PairingData } from './types';
+// Device identity disabled — causes async race condition in doConnect
+// import { loadOrCreateDeviceIdentity, signPayload, buildDeviceAuthPayloadV3, DeviceIdentity } from './deviceIdentity';
 
 export interface Attachment {
   data: string;      // base64
   mimeType: string;
   fileName: string;
+}
+
+export interface HistoryMessage {
+  role: 'user' | 'assistant';
+  text: string;
+  timestamp?: number;
 }
 
 interface UseWebSocketReturn {
@@ -15,16 +23,78 @@ interface UseWebSocketReturn {
   sendPushToken: (token: string) => void;
   connect: (pairing: PairingData) => void;
   disconnect: () => void;
-  onMessage: (handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => void;
+  endSession: () => Promise<void>;
+  onMessage: (handler: (text: string, isFinal: boolean) => void) => void;
+  onHistory: (handler: (messages: HistoryMessage[]) => void) => void;
+  requestHistory: (sessionKey?: string, limit?: number) => void;
 }
 
 let reqId = 0;
 function nextId(): string { return `r${++reqId}`; }
 
+// Module-level ref so endSession can be called from screens without hook access
+let _wsRefGlobal: { current: WebSocket | null } = { current: null };
+let _pendingResponses: Map<string, { resolve: () => void; reject: (err: Error) => void }> = new Map();
+
+/**
+ * End the current session by sending /new command to the gateway.
+ * Flushes memory and resets session. Times out after 3 seconds.
+ * Safe to call from any screen — uses module-level WebSocket ref.
+ */
+export function endSession(): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const ws = _wsRefGlobal.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) {
+      resolve(); // No connection — nothing to flush
+      return;
+    }
+
+    const id = nextId();
+    const timeout = setTimeout(() => {
+      _pendingResponses.delete(id);
+      resolve(); // Timeout — don't block disconnect
+    }, 3000);
+
+    _pendingResponses.set(id, {
+      resolve: () => {
+        clearTimeout(timeout);
+        _pendingResponses.delete(id);
+        resolve();
+      },
+      reject: (err: Error) => {
+        clearTimeout(timeout);
+        _pendingResponses.delete(id);
+        resolve(); // Resolve anyway — don't block disconnect on errors
+      },
+    });
+
+    try {
+      ws.send(JSON.stringify({
+        type: 'req',
+        id,
+        method: 'chat.send',
+        params: {
+          sessionKey: 'main',
+          message: '/new',
+          idempotencyKey: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        },
+      }));
+    } catch {
+      clearTimeout(timeout);
+      _pendingResponses.delete(id);
+      resolve(); // Send failed — don't block disconnect
+    }
+  });
+}
+
 export function useWebSocket(): UseWebSocketReturn {
   const wsRef = useRef<WebSocket | null>(null);
   const pairingRef = useRef<PairingData | null>(null);
-  const handlerRef = useRef<((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) | null>(null);
+  const handlerRef = useRef<((text: string, isFinal: boolean) => void) | null>(null);
+  const historyHandlerRef = useRef<((messages: HistoryMessage[]) => void) | null>(null);
+  const historyReqIdRef = useRef<string | null>(null);
+  const connectReqIdRef = useRef<string | null>(null);
+  const historyLoadedRef = useRef(false);
   const streamRef = useRef('');
   const reconnectRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const healthRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -48,23 +118,12 @@ export function useWebSocket(): UseWebSocketReturn {
     if (!throttleTimerRef.current) {
       // Fire immediately on first delta, then throttle at ~16ms (~60fps)
       flushDelta();
-      throttleTimerRef.current = setTimeout(flushDelta, 16);
+      throttleTimerRef.current = setTimeout(flushDelta, 120);
     }
   }, [flushDelta]);
 
   // --- AppState tracking for background notifications (Issue 3) ---
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
-
-  useEffect(() => {
-    const sub = AppState.addEventListener('change', (nextState) => {
-      // Clear badge when app returns to foreground
-      if (nextState === 'active' && appStateRef.current !== 'active') {
-        Notifications.setBadgeCountAsync(0).catch(() => {});
-      }
-      appStateRef.current = nextState;
-    });
-    return () => sub.remove();
-  }, []);
 
   const cleanup = useCallback(() => {
     if (reconnectRef.current) { clearTimeout(reconnectRef.current); reconnectRef.current = null; }
@@ -74,6 +133,7 @@ export function useWebSocket(): UseWebSocketReturn {
     if (wsRef.current) {
       const ws = wsRef.current;
       wsRef.current = null;
+      _wsRefGlobal.current = null;
       ws.onopen = null; ws.onclose = null; ws.onerror = null; ws.onmessage = null;
       try { ws.close(); } catch {}
     }
@@ -85,28 +145,55 @@ export function useWebSocket(): UseWebSocketReturn {
 
     const ws = new WebSocket(pairing.url);
     wsRef.current = ws;
+    _wsRefGlobal.current = ws;
 
     ws.onopen = () => {
-      // type: 'req' + method: 'connect' — confirmed working with gateway 2026.3.13
-      ws.send(JSON.stringify({
-        type: 'req',
-        id: nextId(),
-        method: 'connect',
-        params: {
-          minProtocol: 3,
-          maxProtocol: 3,
-          role: 'operator',
-          scopes: ['operator.read', 'operator.write', 'operator.admin'],
-          auth: { token: pairing.token },
-          client: {
-            id: 'openclaw-ios',
-            mode: 'webchat',
-            platform: 'ios',
-            version: '1.0.0',
-            deviceFamily: 'phone',
+      historyLoadedRef.current = false;
+      try {
+        const scopes = ['operator.read', 'operator.write', 'operator.admin'];
+        const authObj: Record<string, unknown> = { token: pairing.token };
+        if (pairing.deviceToken) authObj.deviceToken = pairing.deviceToken;
+        if (pairing.bootstrapToken) authObj.bootstrapToken = pairing.bootstrapToken;
+
+        const cId = nextId();
+        connectReqIdRef.current = cId;
+        ws.send(JSON.stringify({
+          type: 'req',
+          id: cId,
+          method: 'connect',
+          params: {
+            minProtocol: 3,
+            maxProtocol: 3,
+            role: 'operator',
+            scopes,
+            auth: authObj,
+            client: {
+              id: 'openclaw-ios',
+              mode: 'webchat',
+              platform: 'ios',
+              version: '1.0.0',
+              deviceFamily: 'phone',
+            },
           },
-        },
-      }));
+        }));
+      } catch (e) {
+        // Fallback: absolute minimum connect
+        const cId = nextId();
+        connectReqIdRef.current = cId;
+        ws.send(JSON.stringify({
+          type: 'req',
+          id: cId,
+          method: 'connect',
+          params: {
+            minProtocol: 3,
+            maxProtocol: 3,
+            role: 'operator',
+            scopes: ['operator.read', 'operator.write'],
+            auth: { token: pairing.token },
+            client: { id: 'openclaw-ios', mode: 'webchat', platform: 'ios', version: '1.0.0' },
+          },
+        }));
+      }
 
       // Health keepalive every 25s
       if (healthRef.current) clearInterval(healthRef.current);
@@ -121,10 +208,72 @@ export function useWebSocket(): UseWebSocketReturn {
       try {
         const data = JSON.parse(event.data);
 
-        // Connect success
-        if (data.type === 'res' && data.ok === true) {
+        // Handle pending responses (e.g. endSession acknowledgement)
+        if (data.type === 'res' && data.id && _pendingResponses.has(data.id)) {
+          const pending = _pendingResponses.get(data.id)!;
+          if (data.ok === true || data.ok === undefined) {
+            pending.resolve();
+          } else {
+            pending.reject(new Error(data.error?.message || 'Request failed'));
+          }
+          // Don't return — let connect success also be handled below
+        }
+
+        // Handle chat.history response
+        if (data.type === 'res' && data.id && data.id === historyReqIdRef.current) {
+          historyReqIdRef.current = null;
+          historyLoadedRef.current = true;
+          try {
+            // Gateway sends "payload" not "result"
+            const payload = data.payload || data.result || {};
+            const msgs = Array.isArray(payload.messages) ? payload.messages : [];
+            const parsed: HistoryMessage[] = [];
+            for (const msg of msgs) {
+              if (!msg || typeof msg !== 'object') continue;
+              const role = msg.role === 'user' ? 'user' as const : msg.role === 'assistant' ? 'assistant' as const : null;
+              if (!role) continue;
+              let text = '';
+              if (typeof msg.text === 'string') text = msg.text;
+              else if (Array.isArray(msg.content)) {
+                text = msg.content
+                  .filter((c: any) => c?.type === 'text')
+                  .map((c: any) => c?.text || '')
+                  .join('');
+              }
+              if (!text.trim()) continue;
+              // Skip tool/system noise
+              if (role === 'user' && text.startsWith('[system]')) continue;
+              // Skip /new command and session reset prompts
+              if (role === 'user' && text.trim() === '/new') continue;
+              if (text.includes('A new session was started via /new') || text.includes('Execute your Session Startup sequence')) continue;
+              parsed.push({ role, text, timestamp: msg.ts ? new Date(msg.ts).getTime() : undefined });
+            }
+            if (parsed.length > 0 && historyHandlerRef.current) {
+              historyHandlerRef.current(parsed);
+            }
+          } catch {}
+          return;
+        }
+
+        // Connect success — only match the actual connect response
+        if (data.type === 'res' && data.id === connectReqIdRef.current && data.ok === true) {
+          connectReqIdRef.current = null;
           setStatus('connected');
           attemptRef.current = 0;
+
+          // Auto-request chat history on every connect/reconnect
+          if (!historyLoadedRef.current) {
+            try {
+              const hId = nextId();
+              historyReqIdRef.current = hId;
+              ws.send(JSON.stringify({
+                type: 'req',
+                id: hId,
+                method: 'chat.history',
+                params: { sessionKey: 'agent:main:main', limit: 50 },
+              }));
+            } catch {}
+          }
           return;
         }
 
@@ -138,6 +287,8 @@ export function useWebSocket(): UseWebSocketReturn {
           else if (Array.isArray(msg.content)) {
             text = msg.content.filter((c: any) => c.type === 'text').map((c: any) => c.text || '').join('');
           }
+          // Skip session reset prompts from real-time messages
+          if (text.includes('A new session was started via /new') || text.includes('Execute your Session Startup sequence')) return;
           if (p.state === 'delta') {
             // Gateway sends accumulated text, not chunks — use = not +=
             streamRef.current = text;
@@ -158,13 +309,7 @@ export function useWebSocket(): UseWebSocketReturn {
             const trimmed = text.trim();
             if (trimmed === 'NO_REPLY' || trimmed === 'HEARTBEAT_OK') return;
 
-            // Pass server-side id + createdAt so ChatScreen can deduplicate replays
-            const serverId: string | undefined = msg.id || p.message?.id;
-            const serverTsRaw = p.message?.timestamp;
-            const serverTs: number | undefined = serverTsRaw
-              ? (typeof serverTsRaw === 'number' ? serverTsRaw : Date.parse(serverTsRaw))
-              : undefined;
-            handlerRef.current?.(text, true, serverId, serverTs);
+            handlerRef.current?.(text, true);
 
             // --- Background local notification (Issue 3) ---
             if (appStateRef.current !== 'active') {
@@ -200,6 +345,23 @@ export function useWebSocket(): UseWebSocketReturn {
     };
   }, [cleanup, throttledDeltaHandler]);
 
+  // --- AppState listener: reconnect WebSocket when returning from background ---
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active' && appStateRef.current !== 'active') {
+        // Clear badge when app returns to foreground
+        Notifications.setBadgeCountAsync(0).catch(() => {});
+        // Reconnect WebSocket if it dropped while backgrounded
+        if (wsRef.current?.readyState !== WebSocket.OPEN && pairingRef.current) {
+          attemptRef.current = 0;
+          doConnect(pairingRef.current);
+        }
+      }
+      appStateRef.current = nextState;
+    });
+    return () => sub.remove();
+  }, [doConnect]);
+
   const connect = useCallback((pairing: PairingData) => {
     pairingRef.current = pairing;
     attemptRef.current = 0;
@@ -233,25 +395,41 @@ export function useWebSocket(): UseWebSocketReturn {
 
   const sendPushToken = useCallback((token: string) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
-      // Store Expo push token on gateway via operator.meta.set
-      // so the server can use it for push notifications later
+      // Register push token with gateway's built-in push system
       wsRef.current.send(JSON.stringify({
         type: 'req',
         id: nextId(),
-        method: 'operator.meta.set',
+        method: 'device.registerPush',
         params: {
           pushToken: token,
-          pushPlatform: 'expo',
+          platform: 'ios',
         },
       }));
     }
   }, []);
 
-  const onMessage = useCallback((handler: (text: string, isFinal: boolean, serverId?: string, serverTs?: number) => void) => {
+  const onMessage = useCallback((handler: (text: string, isFinal: boolean) => void) => {
     handlerRef.current = handler;
+  }, []);
+
+  const onHistory = useCallback((handler: (messages: HistoryMessage[]) => void) => {
+    historyHandlerRef.current = handler;
+  }, []);
+
+  const requestHistory = useCallback((sessionKey?: string, limit?: number) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const hId = nextId();
+      historyReqIdRef.current = hId;
+      wsRef.current.send(JSON.stringify({
+        type: 'req',
+        id: hId,
+        method: 'chat.history',
+        params: { sessionKey: sessionKey || 'agent:main:main', limit: limit || 50 },
+      }));
+    }
   }, []);
 
   useEffect(() => { return () => cleanup(); }, [cleanup]);
 
-  return { status, send, sendPushToken, connect, disconnect, onMessage };
+  return { status, send, sendPushToken, connect, disconnect, endSession, onMessage, onHistory, requestHistory };
 }

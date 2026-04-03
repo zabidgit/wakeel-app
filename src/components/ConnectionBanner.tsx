@@ -1,6 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { View, Text, StyleSheet, Animated } from 'react-native';
-import { colors } from '../theme';
+import { useTheme } from '../ThemeContext';
 import { ConnectionStatus } from '../types';
 
 interface ConnectionBannerProps {
@@ -8,6 +8,7 @@ interface ConnectionBannerProps {
 }
 
 export function ConnectionBanner({ status }: ConnectionBannerProps) {
+  const { colors } = useTheme();
   const slideAnim = useRef(new Animated.Value(-30)).current;
   const pulseAnim = useRef(new Animated.Value(0.4)).current;
 

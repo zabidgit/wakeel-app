@@ -21,7 +21,7 @@ type Props = {
 };
 
 export function PeopleScreen({ navigation, route }: Props) {
-  const { wakeclName, userName, userNickname, userTimezone, accountToken } = route.params;
+  const { wakeclName, userName, userNickname, userTimezone, accountToken, account } = route.params;
   const [partnerName, setPartnerName] = useState('');
   const [familyMembers, setFamilyMembers] = useState<string[]>([]);
 
@@ -41,7 +41,7 @@ export function PeopleScreen({ navigation, route }: Props) {
 
   const handleContinue = () => {
     const filledMembers = familyMembers.filter((m) => m.trim().length > 0);
-    navigation.navigate('OnboardingPermissions', {
+    navigation.navigate('OnboardingPersonality', {
       wakeclName,
       userName,
       userNickname,
@@ -49,6 +49,7 @@ export function PeopleScreen({ navigation, route }: Props) {
       partnerName: partnerName.trim() || undefined,
       familyMembers: filledMembers.length > 0 ? filledMembers : undefined,
       accountToken,
+      account,
     });
   };
 

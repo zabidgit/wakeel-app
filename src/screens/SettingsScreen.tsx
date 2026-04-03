@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   View,
   Text,
@@ -18,8 +18,9 @@ import { getAccountInfo, getAccountToken, clearAccountToken, deleteAccount, crea
 const owlLogo = require('../../assets/owl-logo.png');
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { colors, spacing } from '../theme';
+import { spacing, getThemeColors } from '../theme';
 import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } from '../storage';
+import { endSession } from '../useWebSocket';
 import { PairingData, RootStackParamList } from '../types';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
@@ -52,6 +53,9 @@ function SettingsRow({
   danger = false,
   onPress,
 }: SettingsRowProps) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   return (
     <TouchableOpacity
       style={[styles.row, danger && styles.rowDanger]}
@@ -92,11 +96,13 @@ function SettingsRow({
 // ─── Settings Screen ──────────────────────────────────────────────────────────
 
 export function SettingsScreen({ navigation }: Props) {
+  const { colors, mode, setMode } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [pairing, setPairing] = useState<PairingData | null>(null);
   const [accountInfo, setAccountInfo] = useState<Awaited<ReturnType<typeof getAccountInfo>>>(null);
   const [accountToken, setAccountToken] = useState<string | null>(null);
   const insets = useSafeAreaInsets();
-  const { mode, setMode } = useTheme();
 
   useEffect(() => {
     getPairing().then(setPairing);
@@ -107,14 +113,17 @@ export function SettingsScreen({ navigation }: Props) {
   const handleSignOut = () => {
     Alert.alert(
       'Sign Out',
-      'You\'ll need to sign in again to access your Wakeel.',
+      'This will end your session and sign you out. You\'ll need to sign in again to reconnect.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
+            try { await endSession(); } catch {}
             await clearAccountToken();
+            await clearPairing();
+            await clearMessages();
             navigation.reset({ index: 0, routes: [{ name: 'Auth' }] });
           },
         },
@@ -126,14 +135,45 @@ export function SettingsScreen({ navigation }: Props) {
     ActionSheetIOS.showActionSheetWithOptions(
       {
         title: 'Appearance',
-        options: ['Dark Mode', 'Night Mode (warm amber)', 'Cancel'],
-        cancelButtonIndex: 2,
+        options: ['☀️  Light Mode', '🌑  Dark Mode', '🌙  Night Mode (warm amber)', 'Cancel'],
+        cancelButtonIndex: 3,
       },
       (buttonIndex) => {
-        if (buttonIndex === 0) setMode('dark');
-        else if (buttonIndex === 1) setMode('night');
+        if (buttonIndex === 0) setMode('light');
+        else if (buttonIndex === 1) setMode('dark');
+        else if (buttonIndex === 2) setMode('night');
       },
     );
+  };
+
+  const getThemeLabel = () => {
+    if (mode === 'light') return 'Light';
+    if (mode === 'night') return 'Night';
+    return 'Dark';
+  };
+
+  const getThemeSubtitle = () => {
+    if (mode === 'light') return 'Light Mode';
+    if (mode === 'night') return 'Night Mode (warm amber)';
+    return 'Dark Mode';
+  };
+
+  const getThemeIcon = () => {
+    if (mode === 'light') return '☀️';
+    if (mode === 'night') return '🌙';
+    return '🌑';
+  };
+
+  const getThemeIconColor = () => {
+    if (mode === 'light') return '#F5A623';
+    if (mode === 'night') return '#FFB347';
+    return colors.onSurfaceVariant;
+  };
+
+  const getThemeIconBg = () => {
+    if (mode === 'light') return 'rgba(245,166,35,0.12)';
+    if (mode === 'night') return 'rgba(255,179,71,0.1)';
+    return colors.surfaceContainerHigh;
   };
 
   const handleInvite = async () => {
@@ -167,7 +207,7 @@ export function SettingsScreen({ navigation }: Props) {
         message: 'Choose which chat to clear:',
         options: [...chatNames, 'Clear All Chats', 'Cancel'],
         cancelButtonIndex: chatNames.length + 1,
-        destructiveButtonIndex: chatNames.length, // "Clear All" is destructive
+        destructiveButtonIndex: chatNames.length,
       },
       async (buttonIndex) => {
         if (buttonIndex === chatNames.length + 1) return; // Cancel
@@ -231,7 +271,6 @@ export function SettingsScreen({ navigation }: Props) {
           style: 'destructive',
           onPress: async () => {
             try {
-              // Use account token if available (auth flow), otherwise direct API key
               const tok = await getAccountToken();
               if (tok) {
                 await deleteAccount(tok);
@@ -271,11 +310,18 @@ export function SettingsScreen({ navigation }: Props) {
           text: 'Disconnect',
           style: 'destructive',
           onPress: async () => {
+            // Tell gateway to flush memory and end session before disconnecting
+            try {
+              await endSession();
+            } catch {
+              // Don't block disconnect if gateway is unreachable
+            }
+            await clearAccountToken();
             await clearPairing();
             await clearMessages();
             navigation.reset({
               index: 0,
-              routes: [{ name: 'Pairing' }],
+              routes: [{ name: 'Auth' }],
             });
           },
         },
@@ -341,7 +387,7 @@ export function SettingsScreen({ navigation }: Props) {
               iconColor="#FF9500"
               iconBg="rgba(255,149,0,0.1)"
               title="Sign Out"
-              subtitle="Return to Login Screen"
+              subtitle="End session and return to login"
               danger
               onPress={handleSignOut}
             />
@@ -351,12 +397,12 @@ export function SettingsScreen({ navigation }: Props) {
         {/* Appearance section */}
         <View style={[styles.section, accountInfo ? styles.sectionSpaced : undefined]}>
           <SettingsRow
-            icon={mode === 'night' ? '🌙' : '🌑'}
-            iconColor={mode === 'night' ? '#FFB347' : colors.onSurfaceVariant}
-            iconBg={mode === 'night' ? 'rgba(255,179,71,0.1)' : colors.surfaceContainerHigh}
+            icon={getThemeIcon()}
+            iconColor={getThemeIconColor()}
+            iconBg={getThemeIconBg()}
             title="Appearance"
-            subtitle={mode === 'night' ? 'Night Mode (warm amber)' : 'Dark Mode'}
-            value={mode === 'night' ? 'Night' : 'Dark'}
+            subtitle={getThemeSubtitle()}
+            value={getThemeLabel()}
             onPress={handleThemeToggle}
           />
         </View>
@@ -411,18 +457,6 @@ export function SettingsScreen({ navigation }: Props) {
           </View>
         )}
 
-        {/* Help */}
-        <View style={[styles.section, styles.sectionSpaced]}>
-          <SettingsRow
-            icon="📖"
-            iconColor={colors.primaryGold}
-            iconBg="rgba(242,202,80,0.1)"
-            title="What can Wakeel do?"
-            subtitle="Features, tips & capabilities"
-            onPress={() => navigation.navigate('WhatCanWakeelDo', {})}
-          />
-        </View>
-
         {/* Clear messages & Disconnect */}
         <View style={[styles.section, styles.sectionSpaced]}>
           <SettingsRow
@@ -433,16 +467,7 @@ export function SettingsScreen({ navigation }: Props) {
             subtitle="Delete Chat History"
             onPress={handleClearMessages}
           />
-          <View style={styles.rowDivider} />
-          <SettingsRow
-            icon="✕"
-            iconColor={colors.error}
-            iconBg="rgba(255,180,171,0.1)"
-            title="Disconnect"
-            subtitle="Terminate Current Session"
-            danger
-            onPress={handleDisconnect}
-          />
+          {/* Disconnect merged into Sign Out */}
         </View>
 
         {/* Cancel Wakeel — nuclear option */}
@@ -477,7 +502,7 @@ export function SettingsScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: colors.background,
@@ -515,7 +540,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: spacing.md,
     paddingBottom: spacing.md,
-    backgroundColor: 'rgba(5,5,5,0.85)',
+    backgroundColor: colors.surface,
     borderBottomWidth: StyleSheet.hairlineWidth,
     borderBottomColor: colors.outlineVariant,
   },
@@ -528,16 +553,14 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: colors.surfaceContainerHighest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineVariant,
+    overflow: 'hidden',
+    backgroundColor: '#0B1120',
+    borderWidth: 1,
+    borderColor: '#C9A84C',
   },
   logoMiniImg: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
+    width: '100%' as any,
+    height: '100%' as any,
   },
   headerBrand: {
     fontSize: 20,

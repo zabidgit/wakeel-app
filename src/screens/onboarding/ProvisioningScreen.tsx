@@ -12,8 +12,8 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { RouteProp } from '@react-navigation/native';
 import { colors, spacing } from '../../theme';
 import { RootStackParamList, PairingData } from '../../types';
-import { savePairing } from '../../storage';
-import { provisionWithAccountToken } from '../../auth';
+import { savePairing, clearMessages } from '../../storage';
+import { provisionWithAccountToken, saveAccountToken, saveAccountInfo } from '../../auth';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
 const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
@@ -33,7 +33,7 @@ const STEPS = [
 ];
 
 export function ProvisioningScreen({ navigation, route }: Props) {
-  const { data, accountToken } = route.params;
+  const { data, accountToken, account } = route.params;
   const [currentStep, setCurrentStep] = useState(0);
   const [error, setError] = useState('');
   const pulseAnim = useRef(new Animated.Value(1)).current;
@@ -142,7 +142,11 @@ export function ProvisioningScreen({ navigation, route }: Props) {
         setCurrentStep(2);
         await delay(1500);
         if (cancelled) return;
+        await clearMessages(); // Fresh container = fresh chat
         await savePairing(pairingData);
+        // Persist account NOW — provisioning succeeded
+        if (accountToken) await saveAccountToken(accountToken);
+        if (account) await saveAccountInfo(account);
 
         if (cancelled) return;
 
@@ -188,7 +192,7 @@ export function ProvisioningScreen({ navigation, route }: Props) {
             Setting up...
           </Animated.Text>
           <Text style={styles.subtitle}>
-            Creating your Wakeel. This takes about 30 seconds.
+            Creating your Wakeel. This takes about 2 minutes.
           </Text>
 
           {/* Animated owl */}
@@ -303,7 +307,10 @@ const styles = StyleSheet.create({
   owlImage: {
     width: 120,
     height: 120,
-    borderRadius: 20,
+    borderRadius: 28,
+    borderWidth: 2,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
   },
 
   steps: {

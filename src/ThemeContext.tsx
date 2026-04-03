@@ -21,7 +21,7 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     AsyncStorage.getItem(THEME_KEY).then((saved) => {
-      if (saved === 'dark' || saved === 'night') {
+      if (saved === 'dark' || saved === 'night' || saved === 'light') {
         setModeState(saved);
       }
     });

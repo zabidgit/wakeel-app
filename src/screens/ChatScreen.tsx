@@ -13,11 +13,14 @@ import {
   Clipboard,
   Alert,
   ActionSheetIOS,
+  Animated,
+  AppState,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect } from '@react-navigation/native';
-import { colors, spacing } from '../theme';
+import { spacing, getThemeColors } from '../theme';
+import { useTheme } from '../ThemeContext';
 import {
   getPairing,
   saveMessages,
@@ -28,16 +31,27 @@ import {
   saveChatMessages,
   clearChatMessages,
 } from '../storage';
-import { useWebSocket, Attachment } from '../useWebSocket';
+import { useWebSocket, Attachment, HistoryMessage } from '../useWebSocket';
 import { Message, ConnectionStatus, ChatInfo, RootStackParamList } from '../types';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
-import * as Notifications from 'expo-notifications';
-import { registerForPushNotifications, registerTokenWithPushServer, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
+import { registerForPushNotifications, registerTokenWithPushServer, addNotificationReceivedListener, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
+import {
+  useAudioRecorder,
+  useAudioRecorderState,
+  AudioModule,
+  setAudioModeAsync,
+} from 'expo-audio';
+import {
+  WHISPER_RECORDING_PRESET,
+  requestMicPermission,
+  readRecordingAsBase64,
+  transcribeAudio,
+} from '../voice';
 
 const owlLogo = require('../../assets/owl-logo.png');
 
@@ -47,36 +61,7 @@ type Props = {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-// Delivery queue re-sends arrive with a new random ID but identical content.
-// Guard against this: if Wakeel already sent this exact text within the last hour, it's a re-delivery.
-const CONTENT_DEDUP_WINDOW_MS = 60 * 60 * 1000; // 1 hour
-
-// Repair timestamps from message IDs.
-// Message IDs contain the original Date.now() at creation: "user-1775082043000-0.xyz" or "wakeel-1775082043000-0.xyz".
-// A previous OTA stored Wakeel messages with server timestamps (different clock) which broke ordering.
-// This extracts the reliable receipt-time timestamp from the ID to repair corrupted entries.
-function repairTimestamp(msg: Message): Message {
-  const match = msg.id.match(/^(?:user|wakeel)-(\d{13,})-/);
-  if (match) {
-    const idTs = parseInt(match[1], 10);
-    if (!isNaN(idTs) && idTs > 1700000000000 && idTs < 1900000000000) {
-      if (msg.timestamp !== idTs) {
-        return { ...msg, timestamp: idTs };
-      }
-    }
-  }
-  return msg;
-}
-
 function insertSorted(arr: Message[], msg: Message): Message[] {
-  // Content dedup: same Wakeel text within 1 hour = delivery queue re-send, not a new message
-  if (msg.sender === 'wakeel' && arr.some(m =>
-    m.sender === 'wakeel' &&
-    m.text === msg.text &&
-    Math.abs(m.timestamp - msg.timestamp) < CONTENT_DEDUP_WINDOW_MS
-  )) {
-    return arr;
-  }
   const filtered = arr.filter(m => m.id !== msg.id);
   let lo = 0, hi = filtered.length;
   while (lo < hi) {
@@ -90,36 +75,18 @@ function insertSorted(arr: Message[], msg: Message): Message[] {
 }
 
 function dedupeAndSort(msgs: Message[]): Message[] {
-  // Step 0: Repair any timestamps corrupted by server-time storage
-  const repaired = msgs.map(repairTimestamp);
-  // Step 1: deduplicate by ID (original behaviour)
   const seen = new Map<string, Message>();
-  for (const m of repaired) {
+  for (const m of msgs) {
     seen.set(m.id, m);
   }
-  // Step 2: deduplicate Wakeel messages by content within a 1-hour window.
-  // Delivery queue re-sends produce a new random ID but identical text — this catches those.
-  // Sort first so we always keep the earliest (original) copy.
-  const sorted = Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
-  const result: Message[] = [];
-  for (const m of sorted) {
-    if (m.sender === 'wakeel') {
-      const isDupe = result.some(r =>
-        r.sender === 'wakeel' &&
-        r.text === m.text &&
-        Math.abs(r.timestamp - m.timestamp) < CONTENT_DEDUP_WINDOW_MS
-      );
-      if (!isDupe) result.push(m);
-    } else {
-      result.push(m);
-    }
-  }
-  return result;
+  return Array.from(seen.values()).sort((a, b) => a.timestamp - b.timestamp);
 }
 
 // ─── Status Dot ───────────────────────────────────────────────────────────────
 
 function StatusDot({ status }: { status: ConnectionStatus }) {
+  const { colors } = useTheme();
+
   const dotColor =
     status === 'connected' ? colors.success :
     status === 'connecting' ? colors.primaryGold :
@@ -130,11 +97,12 @@ function StatusDot({ status }: { status: ConnectionStatus }) {
     status === 'connecting' ? 'Connecting...' :
     'Disconnected';
 
+  const styles = useMemo(() => createStatusDotStyles(colors), [colors]);
+
   return (
     <View style={styles.statusRow}>
       <View style={[styles.statusDot, { backgroundColor: dotColor }]} />
       <Text style={styles.statusText}>{label}</Text>
-      <Text style={[styles.statusText, { opacity: 0.4, fontSize: 9, marginLeft: 4 }]}>v6</Text>
     </View>
   );
 }
@@ -149,6 +117,8 @@ function formatTime(timestamp: number): string {
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
 const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createBubbleStyles(colors), [colors]);
   const isUser = message.sender === 'user';
 
   if (isUser) {
@@ -184,7 +154,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }
           <Text style={styles.wakeelLabel}>Wakeel</Text>
         </View>
         <View style={styles.wakeelMessageBody}>
-          <MessageContent text={message.text} isUser={false} />
+          <MessageContent text={message.text} isUser={false} isStreaming={isStreaming} />
           {isStreaming && <StreamingCursor />}
         </View>
         <Text style={styles.timeTextWakeel}>{formatTime(message.timestamp)}</Text>
@@ -205,13 +175,25 @@ const CHAT_EMOJIS = ['💬', '🏠', '🏥', '💼', '📚', '🎯', '🛒', '�
 // ─── Chat Screen ──────────────────────────────────────────────────────────────
 
 export function ChatScreen({ navigation }: Props) {
+  const { colors } = useTheme();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputText, setInputText] = useState('');
   const [wakeelName, setWakeelName] = useState('Wakeel');
   const [pairingData, setPairingData] = useState<{ url: string; token: string } | null>(null);
-  const pairingDataRef = useRef<{ url: string; token: string } | null>(null);
   const [isTyping, setIsTyping] = useState(false);
   const [pendingAttachment, setPendingAttachment] = useState<AttachmentResult | null>(null);
+
+  // Voice recording state
+  type VoiceState = 'idle' | 'recording' | 'transcribing';
+  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const voiceStateRef = useRef<VoiceState>('idle');
+  const recordingStartTime = useRef<number>(0);
+  const autoStopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pulseAnim = useRef(new Animated.Value(1)).current;
+  const audioRecorder = useAudioRecorder(WHISPER_RECORDING_PRESET);
+  const recorderState = useAudioRecorderState(audioRecorder);
 
   // Multi-chat state
   const [chats, setChats] = useState<ChatInfo[]>([]);
@@ -225,19 +207,47 @@ export function ChatScreen({ navigation }: Props) {
   const flatListRef = useRef<FlatList>(null);
   const pushTokenSent = useRef(false);
   const activeChatRef = useRef<ChatInfo | null>(null);
-  // Track latest stored message timestamp to filter out history replays on reconnect
-  const maxStoredTsRef = useRef<number>(0);
-  // Guards against delivery-queue messages saving to storage before history has loaded.
-  // Without this, a fast delivery-queue fire can overwrite the full message history
-  // with just the one queued message before AsyncStorage finishes reading.
-  const storageLoadedRef = useRef<boolean>(false);
-  const { status, send, sendPushToken, connect, onMessage } = useWebSocket();
+  const storageLoadedRef = useRef(false);
+  const { status, send, sendPushToken, connect, onMessage, onHistory } = useWebSocket();
   const insets = useSafeAreaInsets();
 
   // Keep ref in sync for use in callbacks
   useEffect(() => {
     activeChatRef.current = activeChat;
   }, [activeChat]);
+
+  // Keep voiceState ref in sync
+  useEffect(() => {
+    voiceStateRef.current = voiceState;
+  }, [voiceState]);
+
+  // Pulsing animation for recording indicator
+  useEffect(() => {
+    if (voiceState === 'recording') {
+      const loop = Animated.loop(
+        Animated.sequence([
+          Animated.timing(pulseAnim, { toValue: 0.3, duration: 600, useNativeDriver: true }),
+          Animated.timing(pulseAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
+        ]),
+      );
+      loop.start();
+      return () => loop.stop();
+    } else {
+      pulseAnim.setValue(1);
+    }
+  }, [voiceState]);
+
+  // Stop recording if app goes to background
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (nextState) => {
+      if (nextState !== 'active' && voiceStateRef.current === 'recording') {
+        try { audioRecorder.stop(); } catch {}
+        setVoiceState('idle');
+        if (autoStopTimer.current) clearTimeout(autoStopTimer.current);
+      }
+    });
+    return () => sub.remove();
+  }, []);
 
   // Load pairing, chats, and messages on mount
   useEffect(() => {
@@ -249,9 +259,7 @@ export function ChatScreen({ navigation }: Props) {
       }
 
       setWakeelName(pairing.name || 'Wakeel');
-      const pd = { url: pairing.url, token: pairing.token };
-      pairingDataRef.current = pd;
-      setPairingData(pd);
+      setPairingData({ url: pairing.url, token: pairing.token });
       connect(pairing);
 
       // Load chats
@@ -263,87 +271,71 @@ export function ChatScreen({ navigation }: Props) {
       setActiveChat(firstChat);
       activeChatRef.current = firstChat;
 
-      // Load messages for active chat.
-      // IMPORTANT: use a functional setMessages so we can merge with any messages that
-      // arrived via the delivery queue before AsyncStorage finished reading.  Without this
-      // merge the delivery-queue message saves [just_one_msg] to storage, overwriting the
-      // full history.  We also persist the merged result immediately so storage is repaired.
+      // Load messages for active chat
       const saved = await getChatMessages(firstChat.sessionKey);
-      const rawSaved = saved.length > 0 ? saved : await getMessages(); // fallback: legacy key
-      const sortedFromStorage = dedupeAndSort(rawSaved);
-      setMessages(prev => {
-        const merged = dedupeAndSort([...sortedFromStorage, ...prev]);
-        if (merged.length > 0) {
-          saveChatMessages(firstChat.sessionKey, merged); // repair storage immediately
+      if (saved.length > 0) {
+        setMessages(dedupeAndSort(saved));
+      } else {
+        // Try legacy messages (first time migration)
+        const legacy = await getMessages();
+        if (legacy.length > 0) {
+          setMessages(dedupeAndSort(legacy));
         }
-        // Mark storage as loaded — onMessage saves are now safe
-        storageLoadedRef.current = true;
-        if (merged.length > 0) {
-          maxStoredTsRef.current = Math.max(
-            ...merged.map(m => m.timestamp),
-            maxStoredTsRef.current,
-          );
-        }
-        return merged;
-      });
+      }
+      storageLoadedRef.current = true;
     })();
 
     clearBadge();
 
-    const sub = addNotificationResponseReceivedListener((response) => {
+    // Insert push notification content into chat as messages
+    const insertPushMessage = (body: string | undefined, title: string | undefined) => {
+      if (!body) return;
+      // Don't insert if it looks like a duplicate of a recent message
+      const trimmed = body.trim().slice(0, 100);
+      setMessages(prev => {
+        const isDupe = prev.some(m =>
+          m.sender === 'wakeel' &&
+          m.text.trim().slice(0, 100) === trimmed &&
+          Date.now() - m.timestamp < 60000
+        );
+        if (isDupe) return prev;
+
+        const pushMsg: Message = {
+          id: `push-${Date.now()}-${Math.random()}`,
+          text: body,
+          sender: 'wakeel',
+          timestamp: Date.now(),
+        };
+        const updated = insertSorted(prev, pushMsg);
+        const currentChat = activeChatRef.current;
+        if (storageLoadedRef.current && currentChat) {
+          saveChatMessages(currentChat.sessionKey, updated);
+        } else if (storageLoadedRef.current) {
+          saveMessages(updated);
+        }
+        return updated;
+      });
+    };
+
+    // Foreground notification — DON'T insert into chat.
+    // When the app is active, WebSocket already delivered the message.
+    // Inserting from push too causes double messages.
+    const fgSub = addNotificationReceivedListener(() => {
+      // No-op — just let the banner show via setNotificationHandler
+    });
+
+    // Notification tap — insert content + scroll to bottom
+    const tapSub = addNotificationResponseReceivedListener((response) => {
       clearBadge();
-      // Inject the notification message into chat immediately so the user sees it
-      // before the WebSocket reconnects. Content dedup catches the duplicate later.
-      const fullText = response.notification?.request?.content?.data?.fullText;
-      if (fullText && typeof fullText === 'string') {
-        const trimmed = fullText.trim();
-        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
-          const notifMsg: Message = {
-            id: `notif-${Date.now()}-${Math.random()}`,
-            text: trimmed,
-            sender: 'wakeel' as const,
-            timestamp: Date.now(),
-          };
-          setMessages(prev => {
-            const updated = insertSorted(prev, notifMsg);
-            const currentChat = activeChatRef.current;
-            if (storageLoadedRef.current && currentChat) {
-              saveChatMessages(currentChat.sessionKey, updated);
-            }
-            return updated;
-          });
-        }
-      }
-      setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+      const { body, title } = response.notification.request.content;
+      insertPushMessage(body ?? undefined, title ?? undefined);
+      flatListRef.current?.scrollToEnd({ animated: true });
     });
 
-    // Handle cold-launch from notification tap (app was killed)
-    Notifications.getLastNotificationResponseAsync().then((response) => {
-      if (!response) return;
-      const fullText = response.notification?.request?.content?.data?.fullText;
-      if (fullText && typeof fullText === 'string') {
-        const trimmed = fullText.trim();
-        if (trimmed && trimmed !== 'NO_REPLY' && trimmed !== 'HEARTBEAT_OK') {
-          const notifMsg: Message = {
-            id: `notif-${Date.now()}-${Math.random()}`,
-            text: trimmed,
-            sender: 'wakeel' as const,
-            timestamp: Date.now(),
-          };
-          setMessages(prev => {
-            const updated = insertSorted(prev, notifMsg);
-            const currentChat = activeChatRef.current;
-            if (storageLoadedRef.current && currentChat) {
-              saveChatMessages(currentChat.sessionKey, updated);
-            }
-            return updated;
-          });
-          setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
-        }
-      }
-    });
-
-    return () => sub.remove();
+    return () => {
+      fgSub.remove();
+      tapSub.remove();
+    };
   }, []);
 
   // Register push token once connected
@@ -353,7 +345,7 @@ export function ChatScreen({ navigation }: Props) {
       registerForPushNotifications().then((token) => {
         if (token) {
           sendPushToken(token);
-          registerTokenWithPushServer(token, undefined, pairingDataRef.current?.token);
+          registerTokenWithPushServer(token, undefined, pairingData?.token);
         }
       });
     }
@@ -364,60 +356,88 @@ export function ChatScreen({ navigation }: Props) {
 
   // Handle incoming messages
   useEffect(() => {
-    onMessage((text: string, isFinal: boolean, serverId?: string, serverTs?: number) => {
+    onMessage((text: string, isFinal: boolean) => {
       if (isFinal) {
-        // Always use phone receipt time — server timestamps use a different clock which
-        // causes messages to sort out of conversation order (clock skew).
-        // Delivery-queue duplicates are caught by content dedup in insertSorted instead.
-        const msgTs = Date.now();
-
         setIsTyping(false);
         setStreamingMessage(null);
         const streamId = streamingMsgId.current;
         streamingMsgId.current = null;
 
         const finalMsg: Message = {
-          // Use server-provided ID so any remaining replays get deduped
-          id: serverId || `wakeel-${Date.now()}-${Math.random()}`,
+          id: `wakeel-${Date.now()}-${Math.random()}`,
           text,
           sender: 'wakeel',
-          timestamp: msgTs,
+          timestamp: Date.now(),
         };
-
-        // Update our replay filter threshold
-        if (msgTs > maxStoredTsRef.current) {
-          maxStoredTsRef.current = msgTs;
-        }
 
         setMessages(prev => {
           let base = streamId ? prev.filter(m => m.id !== streamId) : prev;
+          // Content-based dedup: if same text from wakeel within 1 hour, skip (delivery queue re-send)
+          const CONTENT_DEDUP_WINDOW_MS = 60 * 60 * 1000;
+          const isDuplicate = base.some(m =>
+            m.sender === 'wakeel' &&
+            m.text === text &&
+            Date.now() - m.timestamp < CONTENT_DEDUP_WINDOW_MS
+          );
+          if (isDuplicate) return base;
           const updated = insertSorted(base, finalMsg);
-          // Only persist once storage has fully loaded — writing before load completes
-          // overwrites the full history with just this one message (race condition).
-          if (storageLoadedRef.current) {
-            const currentChat = activeChatRef.current;
-            if (currentChat) {
-              saveChatMessages(currentChat.sessionKey, updated);
-            } else {
-              saveMessages(updated);
-            }
+          // Save to active chat's storage
+          const currentChat = activeChatRef.current;
+          if (storageLoadedRef.current && currentChat) {
+            saveChatMessages(currentChat.sessionKey, updated);
+          } else if (storageLoadedRef.current) {
+            saveMessages(updated);
           }
           return updated;
         });
       } else {
-        setIsTyping(false);
-        if (!streamingMsgId.current) {
-          streamingMsgId.current = `wakeel-stream-${Date.now()}`;
-        }
-        setStreamingMessage({
-          id: streamingMsgId.current,
-          text,
-          sender: 'wakeel',
-          timestamp: Date.now(),
-        });
+        // Don't render partial text — just show typing indicator until complete.
+        // This gives a clean "message appears" feel instead of watching it stream.
+        setIsTyping(true);
       }
     });
   }, [onMessage]);
+
+  // Handle history loaded on reconnect
+  useEffect(() => {
+    onHistory((historyMsgs: HistoryMessage[]) => {
+      if (historyMsgs.length === 0) return;
+
+      // Convert history messages to our Message format
+      // Use a base timestamp and space messages 1s apart for ordering
+      const baseTs = Date.now() - (historyMsgs.length * 1000);
+      const historyConverted: Message[] = historyMsgs.map((hm, i) => ({
+        id: `history-${hm.role}-${i}-${hm.timestamp || (baseTs + i * 1000)}`,
+        text: hm.text,
+        sender: hm.role === 'user' ? 'user' as const : 'wakeel' as const,
+        timestamp: hm.timestamp || (baseTs + i * 1000),
+      }));
+
+      setMessages(prev => {
+        // Build a set of existing message texts for dedup
+        const existingTexts = new Set(prev.map(m => m.text.trim().slice(0, 100)));
+
+        // Only add history messages not already in local state
+        const newFromHistory = historyConverted.filter(hm =>
+          !existingTexts.has(hm.text.trim().slice(0, 100))
+        );
+
+        if (newFromHistory.length === 0) return prev;
+
+        const merged = dedupeAndSort([...prev, ...newFromHistory]);
+
+        // Persist
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, merged);
+        } else {
+          saveMessages(merged);
+        }
+
+        return merged;
+      });
+    });
+  }, [onHistory]);
 
   // Auto-scroll
   useEffect(() => {
@@ -428,22 +448,13 @@ export function ChatScreen({ navigation }: Props) {
     }
   }, [messages.length, streamingMessage]);
 
-  // ─── Reload messages when returning from Settings (e.g. after clear chat) ──
+  // ─── Reload messages when returning from Settings ──
   useFocusEffect(
     React.useCallback(() => {
       const reload = async () => {
         if (!activeChat) return;
         const chatMsgs = await getChatMessages(activeChat.sessionKey);
-        if (chatMsgs.length > 0) {
-          const sorted = dedupeAndSort(chatMsgs);
-          setMessages(sorted);
-          // Persist repaired timestamps so they survive future restarts
-          await saveChatMessages(activeChat.sessionKey, sorted);
-          maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
-        } else {
-          setMessages([]);
-          maxStoredTsRef.current = 0;
-        }
+        setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
       };
       reload();
     }, [activeChat?.sessionKey])
@@ -452,7 +463,6 @@ export function ChatScreen({ navigation }: Props) {
   // ─── Chat switching ───────────────────────────────────────────────────────
 
   const switchChat = useCallback(async (chat: ChatInfo) => {
-    // Save current messages first
     if (activeChat) {
       await saveChatMessages(activeChat.sessionKey, messages);
     }
@@ -461,23 +471,12 @@ export function ChatScreen({ navigation }: Props) {
     activeChatRef.current = chat;
     setSidebarVisible(false);
 
-    // Clear streaming state
     setStreamingMessage(null);
     streamingMsgId.current = null;
     setIsTyping(false);
 
-    // Load new chat's messages (simple replace — no delivery queue race here)
-    storageLoadedRef.current = false;
     const chatMsgs = await getChatMessages(chat.sessionKey);
-    if (chatMsgs.length > 0) {
-      const sorted = dedupeAndSort(chatMsgs);
-      setMessages(sorted);
-      maxStoredTsRef.current = Math.max(...sorted.map(m => m.timestamp));
-    } else {
-      setMessages([]);
-      maxStoredTsRef.current = 0;
-    }
-    storageLoadedRef.current = true;
+    setMessages(chatMsgs.length > 0 ? dedupeAndSort(chatMsgs) : []);
   }, [activeChat, messages]);
 
   const handleNewChat = useCallback(() => {
@@ -492,7 +491,6 @@ export function ChatScreen({ navigation }: Props) {
             if (!name?.trim()) return;
             const id = `chat-${Date.now()}`;
             const sessionKey = `chat-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
-            // Pick a random emoji from the list
             const emoji = CHAT_EMOJIS[Math.floor(Math.random() * CHAT_EMOJIS.length)];
             const newChat: ChatInfo = {
               id,
@@ -513,7 +511,7 @@ export function ChatScreen({ navigation }: Props) {
   }, [chats, switchChat]);
 
   const handleDeleteChat = useCallback(async (chat: ChatInfo) => {
-    if (chat.sessionKey === 'main') return; // Can't delete General
+    if (chat.sessionKey === 'main') return;
 
     Alert.alert(
       'Delete Chat',
@@ -529,7 +527,6 @@ export function ChatScreen({ navigation }: Props) {
             await saveChats(updated);
             await clearChatMessages(chat.sessionKey);
 
-            // If deleting the active chat, switch to General
             if (activeChat?.id === chat.id) {
               const general = updated.find(c => c.sessionKey === 'main') || updated[0];
               switchChat(general);
@@ -584,6 +581,136 @@ export function ChatScreen({ navigation }: Props) {
     );
   }, []);
 
+  // ─── Voice recording ───────────────────────────────────────────────────────
+
+  const handleMicPress = useCallback(async () => {
+    if (voiceState !== 'idle') return; // debounce
+
+    let granted = false;
+    try {
+      granted = await requestMicPermission();
+    } catch (permErr) {
+      Alert.alert('Microphone Error', 'Could not request microphone permission: ' + String(permErr));
+      return;
+    }
+    if (!granted) {
+      Alert.alert('Microphone Access', 'Please enable microphone access in Settings to use voice input.');
+      return;
+    }
+
+    try {
+      await setAudioModeAsync({ playsInSilentMode: true, allowsRecording: true });
+    } catch (modeErr) {
+      Alert.alert('Audio Error', 'Could not set audio mode: ' + String(modeErr));
+      return;
+    }
+
+    try {
+      // prepareToRecordAsync can accept options override; call without args
+      // to use the preset passed to useAudioRecorder hook
+      await audioRecorder.prepareToRecordAsync();
+      audioRecorder.record();
+      recordingStartTime.current = Date.now();
+      setVoiceState('recording');
+
+      // Auto-stop after 60 seconds
+      autoStopTimer.current = setTimeout(() => {
+        if (voiceStateRef.current === 'recording') {
+          handleStopRecording();
+        }
+      }, 60_000);
+    } catch (e) {
+      Alert.alert('Recording Error', 'Could not start recording: ' + String(e));
+      setVoiceState('idle');
+    }
+  }, [voiceState, audioRecorder]);
+
+  const handleStopRecording = useCallback(async () => {
+    if (voiceStateRef.current !== 'recording') return; // double-stop guard
+
+    if (autoStopTimer.current) {
+      clearTimeout(autoStopTimer.current);
+      autoStopTimer.current = null;
+    }
+
+    const elapsed = Date.now() - recordingStartTime.current;
+    if (elapsed < 500) {
+      // Too short — discard
+      try { await audioRecorder.stop(); } catch {}
+      setVoiceState('idle');
+      Alert.alert('Recording too short', 'Hold a bit longer to record a voice message.');
+      return;
+    }
+
+    setVoiceState('transcribing');
+
+    try {
+      await audioRecorder.stop();
+    } catch (e) {
+      console.error('Failed to stop recording:', e);
+      setVoiceState('idle');
+      return;
+    }
+
+    const uri = audioRecorder.uri;
+    if (!uri) {
+      setVoiceState('idle');
+      Alert.alert('Recording Error', 'Could not save the recording. Please try again.');
+      return;
+    }
+
+    const base64 = await readRecordingAsBase64(uri);
+    if (!base64) {
+      setVoiceState('idle');
+      Alert.alert('Recording Error', 'Could not read the recording. Please try again.');
+      return;
+    }
+
+    if (!pairingData) {
+      setVoiceState('idle');
+      Alert.alert('Not Connected', 'Please pair with your Wakeel first.');
+      return;
+    }
+
+    const text = await transcribeAudio(base64, 'https://app.getwakeel.app', pairingData.token);
+    setVoiceState('idle');
+
+    if (text) {
+      // Auto-send the transcribed message
+      const finalText = inputText.trim() ? `${inputText.trim()} ${text}` : text;
+      send(finalText);
+      const newMsg: Message = {
+        id: `user-${Date.now()}`,
+        text: finalText,
+        sender: 'user',
+        timestamp: Date.now(),
+      };
+      setMessages(prev => {
+        const updated = insertSorted(prev, newMsg);
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, updated);
+        } else {
+          saveMessages(updated);
+        }
+        return updated;
+      });
+      setInputText('');
+    } else {
+      Alert.alert('Transcription Failed', 'Could not transcribe your voice message. Please try again.');
+    }
+  }, [audioRecorder, pairingData, inputText, send]);
+
+  const handleCancelRecording = useCallback(async () => {
+    if (autoStopTimer.current) {
+      clearTimeout(autoStopTimer.current);
+      autoStopTimer.current = null;
+    }
+
+    try { await audioRecorder.stop(); } catch {}
+    setVoiceState('idle');
+  }, [audioRecorder]);
+
   // ─── Send ─────────────────────────────────────────────────────────────────
 
   const handleSend = useCallback(async () => {
@@ -619,11 +746,9 @@ export function ChatScreen({ navigation }: Props) {
     setPendingAttachment(null);
     setIsTyping(true);
 
-    // Use active chat's sessionKey for sending
     const sessionKey = activeChat?.sessionKey || 'main';
 
     if (attachment) {
-      // Upload to provisioning server (app.getwakeel.app/upload), auth with client gateway token
       const uploaded = pairingData
         ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
         : null;
@@ -722,6 +847,26 @@ export function ChatScreen({ navigation }: Props) {
 
         {/* Input Bar */}
         <View style={[styles.inputBar, { paddingBottom: insets.bottom + spacing.sm }]}>
+          {/* Recording overlay */}
+          {voiceState === 'recording' && (
+            <View style={styles.recordingOverlay}>
+              <View style={styles.recordingRow}>
+                <Animated.View style={[styles.recordingDot, { opacity: pulseAnim }]} />
+                <Text style={styles.recordingText}>Recording...</Text>
+              </View>
+              <TouchableOpacity onPress={handleCancelRecording} style={styles.cancelButton} activeOpacity={0.7}>
+                <Text style={styles.cancelButtonText}>Cancel</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {/* Transcribing state */}
+          {voiceState === 'transcribing' && (
+            <View style={styles.recordingOverlay}>
+              <Text style={styles.transcribingText}>Transcribing...</Text>
+            </View>
+          )}
+
           {pendingAttachment && (
             <View style={styles.attachmentPreview}>
               {pendingAttachment.mimeType.startsWith('image/') ? (
@@ -747,8 +892,9 @@ export function ChatScreen({ navigation }: Props) {
               onPress={handleAttachmentPress}
               style={styles.attachButton}
               activeOpacity={0.7}
+              disabled={voiceState !== 'idle'}
             >
-              <Text style={styles.attachIcon}>+</Text>
+              <Text style={[styles.attachIcon, voiceState !== 'idle' && { opacity: 0.3 }]}>+</Text>
             </TouchableOpacity>
             <TextInput
               style={styles.input}
@@ -759,18 +905,38 @@ export function ChatScreen({ navigation }: Props) {
               multiline
               maxLength={4000}
               returnKeyType="default"
+              editable={voiceState !== 'recording'}
             />
-            <TouchableOpacity
-              style={[
-                styles.sendButton,
-                (!inputText.trim() && !pendingAttachment) && styles.sendButtonDisabled,
-              ]}
-              onPress={handleSend}
-              disabled={!inputText.trim() && !pendingAttachment}
-              activeOpacity={0.75}
-            >
-              <Text style={styles.sendIcon}>↑</Text>
-            </TouchableOpacity>
+            {/* Show mic when empty + idle (hold to record), otherwise send */}
+            {!inputText.trim() && !pendingAttachment && voiceState !== 'transcribing' ? (
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  !pairingData && styles.sendButtonDisabled,
+                  voiceState === 'recording' && { backgroundColor: '#FF3B30' },
+                ]}
+                onPressIn={voiceState === 'idle' ? handleMicPress : undefined}
+                onPressOut={voiceState === 'recording' ? handleStopRecording : undefined}
+                disabled={!pairingData || voiceState === 'transcribing'}
+                activeOpacity={0.75}
+              >
+                <Text style={[styles.sendIcon, { fontSize: 16 }]}>
+                  {voiceState === 'recording' ? '🔴' : '🎤'}
+                </Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity
+                style={[
+                  styles.sendButton,
+                  ((!inputText.trim() && !pendingAttachment) || voiceState !== 'idle') && styles.sendButtonDisabled,
+                ]}
+                onPress={handleSend}
+                disabled={(!inputText.trim() && !pendingAttachment) || voiceState !== 'idle'}
+                activeOpacity={0.75}
+              >
+                <Text style={styles.sendIcon}>↑</Text>
+              </TouchableOpacity>
+            )}
           </View>
         </View>
       </KeyboardAvoidingView>
@@ -794,87 +960,9 @@ export function ChatScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  flex: {
-    flex: 1,
-  },
+// ─── Style factories ──────────────────────────────────────────────────────────
 
-  // Nebula glows
-  nebulaTop: {
-    position: 'absolute',
-    top: -60,
-    left: -60,
-    width: 300,
-    height: 300,
-    borderRadius: 150,
-    backgroundColor: colors.primaryGold,
-    opacity: 0.04,
-  },
-  nebulaBottom: {
-    position: 'absolute',
-    bottom: -60,
-    right: -40,
-    width: 260,
-    height: 260,
-    borderRadius: 130,
-    backgroundColor: colors.secondaryContainer,
-    opacity: 0.08,
-  },
-
-  // Header
-  header: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: spacing.md,
-    paddingBottom: spacing.md,
-    backgroundColor: 'rgba(5,5,5,0.85)',
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.outlineVariant,
-  },
-  headerLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    flex: 1,
-  },
-  hamburgerButton: {
-    padding: 4,
-    marginRight: 2,
-  },
-  hamburgerIcon: {
-    fontSize: 20,
-    color: colors.outline,
-  },
-  logoMini: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
-    backgroundColor: colors.surfaceContainerHighest,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.outlineVariant,
-  },
-  logoMiniImg: {
-    width: 24,
-    height: 24,
-    borderRadius: 6,
-  },
-  headerTitleGroup: {
-    gap: 2,
-    flex: 1,
-  },
-  headerTitle: {
-    fontSize: 20,
-    fontWeight: '300',
-    letterSpacing: 2,
-    color: colors.primaryTextGold,
-  },
+const createStatusDotStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   statusRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -891,30 +979,9 @@ const styles = StyleSheet.create({
     letterSpacing: 2,
     textTransform: 'uppercase',
   },
-  settingsButton: {
-    padding: spacing.sm,
-  },
-  settingsIcon: {
-    fontSize: 20,
-    color: colors.outline,
-  },
+});
 
-  // Connection banner container
-  bannerContainer: {
-    position: 'relative',
-    zIndex: 10,
-  },
-
-  // Message list
-  messageListContainer: {
-    flex: 1,
-  },
-  messageList: {
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.lg,
-    flexGrow: 1,
-  },
-
+const createBubbleStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
   // User bubble
   bubbleRowUser: {
     flexDirection: 'row',
@@ -959,17 +1026,15 @@ const styles = StyleSheet.create({
   wakeelAvatar: {
     width: 32,
     height: 32,
-    borderRadius: 16,
-    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: 10,
+    backgroundColor: '#0B1120',
     borderWidth: 1,
-    borderColor: colors.outlineVariant,
-    alignItems: 'center',
-    justifyContent: 'center',
+    borderColor: '#C9A84C',
+    overflow: 'hidden',
   },
   wakeelAvatarImg: {
-    width: 22,
-    height: 22,
-    borderRadius: 4,
+    width: '100%' as any,
+    height: '100%' as any,
   },
   wakeelLabel: {
     fontSize: 10,
@@ -992,6 +1057,110 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
     paddingLeft: 2,
   },
+});
+
+const createStyles = (colors: ReturnType<typeof getThemeColors>) => StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: colors.background,
+  },
+  flex: {
+    flex: 1,
+  },
+
+  // Nebula glows
+  nebulaTop: {
+    position: 'absolute',
+    top: -60,
+    left: -60,
+    width: 300,
+    height: 300,
+    borderRadius: 150,
+    backgroundColor: colors.primaryGold,
+    opacity: 0.04,
+  },
+  nebulaBottom: {
+    position: 'absolute',
+    bottom: -60,
+    right: -40,
+    width: 260,
+    height: 260,
+    borderRadius: 130,
+    backgroundColor: colors.secondaryContainer,
+    opacity: 0.08,
+  },
+
+  // Header
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: spacing.md,
+    paddingBottom: spacing.md,
+    backgroundColor: colors.surface,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.outlineVariant,
+  },
+  headerLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  hamburgerButton: {
+    padding: 4,
+    marginRight: 2,
+  },
+  hamburgerIcon: {
+    fontSize: 20,
+    color: colors.outline,
+  },
+  logoMini: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
+  },
+  logoMiniImg: {
+    width: '100%' as any,
+    height: '100%' as any,
+  },
+  headerTitleGroup: {
+    gap: 2,
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 20,
+    fontWeight: '300',
+    letterSpacing: 2,
+    color: colors.primaryTextGold,
+  },
+  settingsButton: {
+    padding: spacing.sm,
+  },
+  settingsIcon: {
+    fontSize: 20,
+    color: colors.outline,
+  },
+
+  // Connection banner container
+  bannerContainer: {
+    position: 'relative',
+    zIndex: 10,
+  },
+
+  // Message list
+  messageListContainer: {
+    flex: 1,
+  },
+  messageList: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.lg,
+    flexGrow: 1,
+  },
 
   // Empty state
   emptyContainer: {
@@ -1005,7 +1174,10 @@ const styles = StyleSheet.create({
     height: 80,
     marginBottom: spacing.md,
     opacity: 0.5,
-    borderRadius: 12,
+    borderRadius: 20,
+    borderWidth: 2,
+    borderColor: '#C9A84C',
+    backgroundColor: '#0B1120',
   },
   emptyText: {
     color: colors.onSurface,
@@ -1073,7 +1245,7 @@ const styles = StyleSheet.create({
   inputBar: {
     paddingHorizontal: spacing.md,
     paddingTop: spacing.sm,
-    backgroundColor: 'rgba(5,5,5,0.92)',
+    backgroundColor: colors.surface,
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: colors.outlineVariant,
   },
@@ -1135,5 +1307,53 @@ const styles = StyleSheet.create({
     color: colors.surfaceContainerLowest,
     fontSize: 18,
     fontWeight: '700',
+  },
+
+  // Voice recording UI
+  recordingOverlay: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.sm,
+    paddingVertical: spacing.sm,
+    marginBottom: spacing.xs,
+    backgroundColor: colors.surfaceContainerHigh,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#FF3B30',
+  },
+  recordingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  recordingDot: {
+    width: 10,
+    height: 10,
+    borderRadius: 5,
+    backgroundColor: '#FF3B30',
+  },
+  recordingText: {
+    color: '#FF3B30',
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 1,
+  },
+  cancelButton: {
+    paddingHorizontal: spacing.md,
+    paddingVertical: spacing.xs + 2,
+    borderRadius: 8,
+    backgroundColor: colors.surfaceContainerHighest,
+  },
+  cancelButtonText: {
+    color: colors.outline,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  transcribingText: {
+    color: colors.primaryTextGold,
+    fontSize: 14,
+    fontWeight: '600',
+    letterSpacing: 1,
   },
 });

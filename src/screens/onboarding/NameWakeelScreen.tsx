@@ -26,6 +26,7 @@ const SUGGESTIONS = ['Nova', 'Atlas', 'Sage', 'Aria', 'Echo', 'Kai'];
 export function NameWakeelScreen({ navigation, route }: Props) {
   const [name, setName] = useState('');
   const accountToken = route?.params?.accountToken;
+  const account = route?.params?.account;
 
   const canContinue = name.trim().length > 0;
 
@@ -105,7 +106,7 @@ export function NameWakeelScreen({ navigation, route }: Props) {
               style={[styles.continueButton, !canContinue && styles.continueButtonDisabled]}
               onPress={() => {
                 if (canContinue) {
-                  navigation.navigate('OnboardingAbout', { wakeclName: name.trim(), accountToken });
+                  navigation.navigate('OnboardingAbout', { wakeclName: name.trim(), accountToken, account });
                 }
               }}
               disabled={!canContinue}

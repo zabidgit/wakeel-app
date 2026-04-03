@@ -21,7 +21,7 @@ type Props = {
 };
 
 export function AboutYouScreen({ navigation, route }: Props) {
-  const { wakeclName, accountToken } = route.params;
+  const { wakeclName, accountToken, account } = route.params;
   const [userName, setUserName] = useState('');
   const [nickname, setNickname] = useState('');
   const detectedTimezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -110,6 +110,7 @@ export function AboutYouScreen({ navigation, route }: Props) {
                     userNickname: nickname.trim() || userName.trim(),
                     userTimezone: detectedTimezone,
                     accountToken,
+                    account,
                   });
                 }
               }}

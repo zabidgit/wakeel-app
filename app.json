@@ -2,7 +2,7 @@
   "expo": {
     "name": "Wakeel",
     "slug": "wakeel",
-    "version": "1.0.2",
+    "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/app-icon.png",
     "userInterfaceStyle": "dark",
@@ -12,6 +12,7 @@
       "resizeMode": "contain",
       "backgroundColor": "#050505"
     },
+    "scheme": "com.getwakeel.app",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.getwakeel.app",
@@ -20,9 +21,10 @@
         "UIBackgroundModes": [
           "remote-notification"
         ],
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Wakeel needs access to your microphone for voice messages."
       },
-      "buildNumber": "98",
+      "buildNumber": "85",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
@@ -43,7 +45,6 @@
       "favicon": "./assets/favicon.png"
     },
     "extra": {
-      "googleClientIdIos": "",
       "eas": {
         "projectId": "621af8c4-fdbd-492d-bf22-2db15c196ebe"
       }
@@ -71,8 +72,19 @@
         }
       ],
       "expo-document-picker",
-      "expo-web-browser",
-      "expo-apple-authentication"
+      "expo-apple-authentication",
+      [
+        "@react-native-google-signin/google-signin",
+        {
+          "iosUrlScheme": "com.googleusercontent.apps.916114118457-5k6k0hnl4rd70m064m8kkjalrsr5t922"
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice messages."
+        }
+      ]
     ]
   }
 }
