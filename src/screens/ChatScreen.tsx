@@ -457,28 +457,18 @@ export function ChatScreen({ navigation }: Props) {
       if (historyMsgs.length === 0) return;
 
       setMessages(prev => {
-        // Find the max timestamp in local storage to prevent history from interleaving
-        const maxStoredTs = prev.reduce((max, m) => Math.max(max, m.timestamp), 0);
-
-        // Place history messages BEFORE any local messages
-        // Use timestamps well before the earliest local message
-        const earliestLocal = prev.length > 0
-          ? prev.reduce((min, m) => Math.min(min, m.timestamp), Infinity)
-          : Date.now();
-        const historyBaseTs = earliestLocal - (historyMsgs.length + 1) * 1000;
+        // Convert history messages using server timestamps when available.
+        // For messages without timestamps, space them 1s apart starting from now - length*1000
+        const fallbackBase = Date.now() - (historyMsgs.length + 1) * 1000;
 
         const historyConverted: Message[] = historyMsgs.map((hm, i) => {
-          // Use server timestamp if available AND it's older than local messages
-          // Otherwise place before local messages to maintain order
-          const serverTs = hm.timestamp;
-          const safeTs = serverTs && serverTs < maxStoredTs
-            ? serverTs
-            : historyBaseTs + i * 1000;
+          // Trust server timestamps — they preserve correct conversation order
+          const ts = hm.timestamp || (fallbackBase + i * 1000);
           return {
-            id: `history-${hm.role}-${i}-${safeTs}`,
+            id: `history-${hm.role}-${i}-${ts}`,
             text: hm.text,
             sender: hm.role === 'user' ? 'user' as const : 'wakeel' as const,
-            timestamp: safeTs,
+            timestamp: ts,
           };
         });
 

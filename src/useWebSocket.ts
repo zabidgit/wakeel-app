@@ -246,7 +246,9 @@ export function useWebSocket(): UseWebSocketReturn {
               // Skip /new command and session reset prompts
               if (role === 'user' && text.trim() === '/new') continue;
               if (text.includes('A new session was started via /new') || text.includes('Execute your Session Startup sequence')) continue;
-              parsed.push({ role, text, timestamp: msg.ts ? new Date(msg.ts).getTime() : undefined });
+              // Gateway may send timestamp as 'ts' or 'timestamp' — check both
+              const rawTs = msg.ts || msg.timestamp;
+              parsed.push({ role, text, timestamp: rawTs ? new Date(rawTs).getTime() : undefined });
             }
             if (parsed.length > 0 && historyHandlerRef.current) {
               historyHandlerRef.current(parsed);
