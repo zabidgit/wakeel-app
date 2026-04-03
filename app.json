@@ -22,15 +22,24 @@
           "remote-notification"
         ],
         "ITSAppUsesNonExemptEncryption": false,
-        "NSMicrophoneUsageDescription": "Wakeel needs access to your microphone for voice messages."
+        "NSMicrophoneUsageDescription": "Wakeel needs access to your microphone for voice messages.",
+        "NSLocationWhenInUseUsageDescription": "Wakeel uses your location to give you contextual help like weather, nearby places, and travel times.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Wakeel uses your location in the background to provide proactive reminders and contextual assistance.",
+        "NSCalendarsUsageDescription": "Wakeel can read and create calendar events to help manage your schedule.",
+        "NSRemindersUsageDescription": "Wakeel can read and create reminders to help you stay on track.",
+        "NSCalendarsFullAccessUsageDescription": "Wakeel needs full calendar access to read and create events on your behalf.",
+        "NSRemindersFullAccessUsageDescription": "Wakeel needs full reminders access to read and create reminders on your behalf."
       },
-      "buildNumber": "85",
+      "buildNumber": "86",
       "entitlements": {
         "aps-environment": "production",
         "com.apple.developer.applesignin": [
           "Default"
         ]
-      }
+      },
+      "backgroundModes": [
+        "location"
+      ]
     },
     "android": {
       "adaptiveIcon": {
@@ -83,6 +92,12 @@
         "expo-audio",
         {
           "microphonePermission": "Allow $(PRODUCT_NAME) to access your microphone for voice messages."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Wakeel uses your location in the background to provide proactive reminders and contextual assistance."
         }
       ]
     ]

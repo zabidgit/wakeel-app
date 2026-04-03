@@ -40,6 +40,8 @@ import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationReceivedListener, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
+import * as Location from 'expo-location';
+import * as Calendar from 'expo-calendar';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -283,6 +285,18 @@ export function ChatScreen({ navigation }: Props) {
         }
       }
       storageLoadedRef.current = true;
+    })();
+
+    // Request location, calendar, and reminders permissions (non-blocking)
+    (async () => {
+      try {
+        const { status: locStatus } = await Location.requestForegroundPermissionsAsync();
+        if (locStatus === 'granted') {
+          await Location.requestBackgroundPermissionsAsync().catch(() => {});
+        }
+      } catch {}
+      try { await Calendar.requestCalendarPermissionsAsync(); } catch {}
+      try { await Calendar.requestRemindersPermissionsAsync(); } catch {}
     })();
 
     clearBadge();
@@ -748,6 +762,20 @@ export function ChatScreen({ navigation }: Props) {
 
     const sessionKey = activeChat?.sessionKey || 'main';
 
+    // Get location prefix (non-blocking, best-effort)
+    let locationPrefix = '';
+    try {
+      const { status: locPerm } = await Location.getForegroundPermissionsAsync();
+      if (locPerm === 'granted') {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }).catch(() => []);
+        if (geo) {
+          const parts = [geo.city, geo.region].filter(Boolean);
+          if (parts.length > 0) locationPrefix = `[📍 ${parts.join(', ')}] `;
+        }
+      }
+    } catch {}
+
     if (attachment) {
       const uploaded = pairingData
         ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
@@ -755,13 +783,13 @@ export function ChatScreen({ navigation }: Props) {
 
       if (uploaded) {
         const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
-        const fullMessage = text ? `${mediaTag}\n${text}` : mediaTag;
+        const fullMessage = text ? `${mediaTag}\n${locationPrefix}${text}` : `${mediaTag}\n${locationPrefix}`;
         send(fullMessage, undefined, sessionKey);
       } else {
-        send(text || `[Failed to upload: ${attachment.fileName}]`, undefined, sessionKey);
+        send(locationPrefix + (text || `[Failed to upload: ${attachment.fileName}]`), undefined, sessionKey);
       }
     } else {
-      send(text, undefined, sessionKey);
+      send(locationPrefix + text, undefined, sessionKey);
     }
   }, [inputText, pendingAttachment, send, activeChat]);
 
