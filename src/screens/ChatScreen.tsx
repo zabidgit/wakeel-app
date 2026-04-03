@@ -472,13 +472,19 @@ export function ChatScreen({ navigation }: Props) {
           };
         });
 
-        // Build a set of existing message texts for dedup
-        const existingTexts = new Set(prev.map(m => m.text.trim().slice(0, 100)));
+        // Strip location prefix for dedup comparison (server has prefix, local doesn't)
+        const stripLocationPrefix = (t: string) => t.replace(/^\[📍[^\]]*\]\s*/, '').trim().slice(0, 100);
+
+        // Build a set of existing message texts for dedup (stripped of location prefix)
+        const existingTexts = new Set(prev.map(m => stripLocationPrefix(m.text)));
 
         // Only add history messages not already in local state
-        const newFromHistory = historyConverted.filter(hm =>
-          !existingTexts.has(hm.text.trim().slice(0, 100))
-        );
+        // Also strip location prefix from user messages returned by history
+        const newFromHistory = historyConverted
+          .map(hm => hm.sender === 'user'
+            ? { ...hm, text: hm.text.replace(/^\[📍[^\]]*\]\s*/, '') }
+            : hm)
+          .filter(hm => !existingTexts.has(stripLocationPrefix(hm.text)));
 
         if (newFromHistory.length === 0) return prev;
 
