@@ -417,17 +417,32 @@ export function ChatScreen({ navigation }: Props) {
     onHistory((historyMsgs: HistoryMessage[]) => {
       if (historyMsgs.length === 0) return;
 
-      // Convert history messages to our Message format
-      // Use a base timestamp and space messages 1s apart for ordering
-      const baseTs = Date.now() - (historyMsgs.length * 1000);
-      const historyConverted: Message[] = historyMsgs.map((hm, i) => ({
-        id: `history-${hm.role}-${i}-${hm.timestamp || (baseTs + i * 1000)}`,
-        text: hm.text,
-        sender: hm.role === 'user' ? 'user' as const : 'wakeel' as const,
-        timestamp: hm.timestamp || (baseTs + i * 1000),
-      }));
-
       setMessages(prev => {
+        // Find the max timestamp in local storage to prevent history from interleaving
+        const maxStoredTs = prev.reduce((max, m) => Math.max(max, m.timestamp), 0);
+
+        // Place history messages BEFORE any local messages
+        // Use timestamps well before the earliest local message
+        const earliestLocal = prev.length > 0
+          ? prev.reduce((min, m) => Math.min(min, m.timestamp), Infinity)
+          : Date.now();
+        const historyBaseTs = earliestLocal - (historyMsgs.length + 1) * 1000;
+
+        const historyConverted: Message[] = historyMsgs.map((hm, i) => {
+          // Use server timestamp if available AND it's older than local messages
+          // Otherwise place before local messages to maintain order
+          const serverTs = hm.timestamp;
+          const safeTs = serverTs && serverTs < maxStoredTs
+            ? serverTs
+            : historyBaseTs + i * 1000;
+          return {
+            id: `history-${hm.role}-${i}-${safeTs}`,
+            text: hm.text,
+            sender: hm.role === 'user' ? 'user' as const : 'wakeel' as const,
+            timestamp: safeTs,
+          };
+        });
+
         // Build a set of existing message texts for dedup
         const existingTexts = new Set(prev.map(m => m.text.trim().slice(0, 100)));
 
@@ -442,9 +457,9 @@ export function ChatScreen({ navigation }: Props) {
 
         // Persist
         const currentChat = activeChatRef.current;
-        if (currentChat) {
+        if (storageLoadedRef.current && currentChat) {
           saveChatMessages(currentChat.sessionKey, merged);
-        } else {
+        } else if (storageLoadedRef.current) {
           saveMessages(merged);
         }
 
