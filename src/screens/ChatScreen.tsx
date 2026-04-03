@@ -42,6 +42,7 @@ import { registerForPushNotifications, registerTokenWithPushServer, addNotificat
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 import * as Location from 'expo-location';
 import * as Calendar from 'expo-calendar';
+import { syncDeviceContext } from '../deviceSync';
 import {
   useAudioRecorder,
   useAudioRecorderState,
@@ -352,7 +353,8 @@ export function ChatScreen({ navigation }: Props) {
     };
   }, []);
 
-  // Register push token once connected
+  // Register push token + sync device context once connected
+  const deviceSyncTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   useEffect(() => {
     if (status === 'connected' && !pushTokenSent.current) {
       pushTokenSent.current = true;
@@ -362,11 +364,28 @@ export function ChatScreen({ navigation }: Props) {
           registerTokenWithPushServer(token, undefined, pairingData?.token);
         }
       });
+
+      // Sync device context (calendar, reminders, location) on connect
+      if (pairingData) {
+        const serverUrl = pairingData.url.replace(/\/ws\/?$/, '').replace(/:\d+$/, '');
+        const baseUrl = 'https://app.getwakeel.app';
+        syncDeviceContext(baseUrl, pairingData.token);
+
+        // Re-sync every 15 minutes
+        if (deviceSyncTimer.current) clearInterval(deviceSyncTimer.current);
+        deviceSyncTimer.current = setInterval(() => {
+          syncDeviceContext(baseUrl, pairingData.token);
+        }, 15 * 60 * 1000);
+      }
     }
     if (status === 'disconnected') {
       pushTokenSent.current = false;
+      if (deviceSyncTimer.current) {
+        clearInterval(deviceSyncTimer.current);
+        deviceSyncTimer.current = null;
+      }
     }
-  }, [status, sendPushToken]);
+  }, [status, sendPushToken, pairingData]);
 
   // Handle incoming messages
   useEffect(() => {

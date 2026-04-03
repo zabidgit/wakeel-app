@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar } from 'react-native';
+import { StatusBar, Alert } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Updates from 'expo-updates';
 import { PairingScreen } from './src/screens/PairingScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
@@ -55,6 +56,29 @@ export default function App() {
 
       // No pairing, no account token — fresh user
       setInitialRoute('Auth');
+    })();
+  }, []);
+
+  // OTA update checker (safe — wrapped in try/catch)
+  useEffect(() => {
+    (async () => {
+      try {
+        if (__DEV__) return; // Skip in development
+        const update = await Updates.checkForUpdateAsync();
+        if (update.isAvailable) {
+          await Updates.fetchUpdateAsync();
+          Alert.alert(
+            'Update Available',
+            'A new version is ready. Restart to apply?',
+            [
+              { text: 'Later', style: 'cancel' },
+              { text: 'Restart', onPress: () => Updates.reloadAsync() },
+            ]
+          );
+        }
+      } catch {
+        // Silent failure — OTA check is best-effort
+      }
     })();
   }, []);
 
