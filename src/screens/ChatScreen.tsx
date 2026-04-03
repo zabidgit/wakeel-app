@@ -38,6 +38,7 @@ import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
 import { ConnectionBanner } from '../components/ConnectionBanner';
 import { Sidebar } from '../components/Sidebar';
+import * as Notifications from 'expo-notifications';
 import { registerForPushNotifications, registerTokenWithPushServer, addNotificationReceivedListener, addNotificationResponseReceivedListener, clearBadge } from '../notifications';
 import { pickImage, takePhoto, pickDocument, uploadAttachment, AttachmentResult } from '../attachments';
 import * as Location from 'expo-location';
@@ -342,10 +343,29 @@ export function ChatScreen({ navigation }: Props) {
     // Notification tap — insert content + scroll to bottom
     const tapSub = addNotificationResponseReceivedListener((response) => {
       clearBadge();
-      const { body, title } = response.notification.request.content;
-      insertPushMessage(body ?? undefined, title ?? undefined);
+      // Prefer fullText from data payload (not truncated), fall back to body
+      const fullText = response.notification?.request?.content?.data?.fullText;
+      const body = response.notification?.request?.content?.body;
+      const text = (typeof fullText === 'string' && fullText.trim()) ? fullText.trim() : body;
+      const title = response.notification?.request?.content?.title;
+      insertPushMessage(text ?? undefined, title ?? undefined);
       flatListRef.current?.scrollToEnd({ animated: true });
     });
+
+    // Cold-launch: app was killed, user tapped notification to open
+    // Wrapped in try/catch — this call crashed builds 89-99
+    try {
+      Notifications.getLastNotificationResponseAsync().then((response) => {
+        if (!response) return;
+        clearBadge();
+        const fullText = response.notification?.request?.content?.data?.fullText;
+        const body = response.notification?.request?.content?.body;
+        const text = (typeof fullText === 'string' && fullText.trim()) ? fullText.trim() : body;
+        const title = response.notification?.request?.content?.title;
+        insertPushMessage(text ?? undefined, title ?? undefined);
+        setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 200);
+      }).catch(() => {}); // Silent failure
+    } catch {} // Silent failure — native module may not be ready
 
     return () => {
       fgSub.remove();
