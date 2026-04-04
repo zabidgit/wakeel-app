@@ -23,6 +23,7 @@ import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } 
 import { endSession } from '../useWebSocket';
 import { PairingData, RootStackParamList } from '../types';
 import { fetchWithTimeout } from '../fetchWithTimeout';
+import Constants from 'expo-constants';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
 const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
@@ -487,7 +488,7 @@ export function SettingsScreen({ navigation }: Props) {
         {/* Footer */}
         <View style={styles.footer}>
           <Text style={styles.footerTitle}>Wakeel · وکیل</Text>
-          <Text style={styles.footerVersion}>v1.0.0 · Your Personal AI Agent</Text>
+          <Text style={styles.footerVersion}>v{Constants.expoConfig?.version ?? '1.0.0'} · Build {Constants.expoConfig?.ios?.buildNumber ?? '?'} · Your Personal AI Agent</Text>
           <View style={styles.footerLinks}>
             <TouchableOpacity onPress={() => Linking.openURL('https://getwakeel.app')}>
               <Text style={styles.footerLink}>Website</Text>

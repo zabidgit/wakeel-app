@@ -495,7 +495,7 @@ export function ChatScreen({ navigation }: Props) {
         setMessages(prev => {
           let base = streamId ? prev.filter(m => m.id !== streamId) : prev;
           // Content-based dedup: if same text from wakeel within 1 hour, skip (delivery queue re-send)
-          const CONTENT_DEDUP_WINDOW_MS = 60 * 60 * 1000;
+          const CONTENT_DEDUP_WINDOW_MS = 30 * 1000; // 30s — catches real dupes without swallowing legit repeats
           const isDuplicate = base.some(m =>
             m.sender === 'wakeel' &&
             m.text === text &&
@@ -921,16 +921,19 @@ export function ChatScreen({ navigation }: Props) {
     };
 
     try {
-      // Get location prefix (non-blocking, best-effort)
+      // Get location prefix — use cached last-known position (instant, non-blocking)
+      // Device sync updates location every 15 min, so cache is usually fresh
       let locationPrefix = '';
       try {
         const { status: locPerm } = await Location.getForegroundPermissionsAsync();
         if (locPerm === 'granted') {
-          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-          const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }).catch(() => []);
-          if (geo) {
-            const parts = [geo.city, geo.region].filter(Boolean);
-            if (parts.length > 0) locationPrefix = `[📍 ${parts.join(', ')}] `;
+          const loc = await Location.getLastKnownPositionAsync();
+          if (loc) {
+            const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }).catch(() => []);
+            if (geo) {
+              const parts = [geo.city, geo.region].filter(Boolean);
+              if (parts.length > 0) locationPrefix = `[📍 ${parts.join(', ')}] `;
+            }
           }
         }
       } catch {}

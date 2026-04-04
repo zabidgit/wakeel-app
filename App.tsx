@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StatusBar, Alert } from 'react-native';
+import { StatusBar, View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Updates from 'expo-updates';
@@ -60,27 +60,26 @@ export default function App() {
     })();
   }, []);
 
-  // OTA update checker (safe — wrapped in try/catch)
+  // OTA update checker — check on launch + every 30 min
+  const [updateReady, setUpdateReady] = useState(false);
   useEffect(() => {
-    (async () => {
+    if (__DEV__) return;
+
+    const checkForUpdate = async () => {
       try {
-        if (__DEV__) return; // Skip in development
         const update = await Updates.checkForUpdateAsync();
         if (update.isAvailable) {
           await Updates.fetchUpdateAsync();
-          Alert.alert(
-            'Update Available',
-            'A new version is ready. Restart to apply?',
-            [
-              { text: 'Later', style: 'cancel' },
-              { text: 'Restart', onPress: () => Updates.reloadAsync() },
-            ]
-          );
+          setUpdateReady(true);
         }
       } catch {
         // Silent failure — OTA check is best-effort
       }
-    })();
+    };
+
+    checkForUpdate(); // Check on launch
+    const interval = setInterval(checkForUpdate, 30 * 60 * 1000); // Every 30 min
+    return () => clearInterval(interval);
   }, []);
 
   if (!initialRoute) return null;
@@ -115,7 +114,49 @@ export default function App() {
           />
         </Stack.Navigator>
       </NavigationContainer>
+      {updateReady && (
+        <View style={updateStyles.banner}>
+          <Text style={updateStyles.text}>Update ready</Text>
+          <TouchableOpacity onPress={() => Updates.reloadAsync()} style={updateStyles.button}>
+            <Text style={updateStyles.buttonText}>Apply</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </ThemeProvider>
     </ErrorBoundary>
   );
 }
+
+const updateStyles = StyleSheet.create({
+  banner: {
+    position: 'absolute',
+    top: 60,
+    left: 20,
+    right: 20,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f2ca50',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+  },
+  text: {
+    color: '#e5e2e1',
+    fontSize: 14,
+    fontWeight: '500',
+  },
+  button: {
+    backgroundColor: '#f2ca50',
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  buttonText: {
+    color: '#050505',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+});
