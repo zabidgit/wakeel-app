@@ -120,15 +120,16 @@ function formatTime(timestamp: number): string {
 
 // ─── Message Bubble ───────────────────────────────────────────────────────────
 
-const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }: { message: Message; isStreaming?: boolean }) {
+const MessageBubble = React.memo(function MessageBubble({ message, isStreaming, onRetry }: { message: Message; isStreaming?: boolean; onRetry?: (msg: Message) => void }) {
   const { colors } = useTheme();
   const styles = useMemo(() => createBubbleStyles(colors), [colors]);
   const isUser = message.sender === 'user';
+  const isFailed = message.status === 'failed';
 
   if (isUser) {
     return (
       <View style={styles.bubbleRowUser}>
-        <View style={styles.bubbleUser}>
+        <View style={[styles.bubbleUser, isFailed && { opacity: 0.6 }]}>
           {message.imageUri && (
             <Image
               source={{ uri: message.imageUri }}
@@ -137,7 +138,14 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }
             />
           )}
           <MessageContent text={message.text} isUser />
-          <Text style={styles.timeTextUser}>{formatTime(message.timestamp)}</Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', gap: 6 }}>
+            {isFailed && onRetry && (
+              <TouchableOpacity onPress={() => onRetry(message)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={{ color: '#ff6b6b', fontSize: 12, fontWeight: '600' }}>⚠️ Tap to retry</Text>
+              </TouchableOpacity>
+            )}
+            <Text style={styles.timeTextUser}>{formatTime(message.timestamp)}</Text>
+          </View>
         </View>
       </View>
     );
@@ -169,6 +177,7 @@ const MessageBubble = React.memo(function MessageBubble({ message, isStreaming }
   return prev.message.id === next.message.id
     && prev.message.text === next.message.text
     && prev.message.imageUri === next.message.imageUri
+    && prev.message.status === next.message.status
     && prev.isStreaming === next.isStreaming;
 });
 
@@ -419,6 +428,34 @@ export function ChatScreen({ navigation }: Props) {
       // (syncs are best-effort HTTP, independent of WS state)
     }
   }, [status, sendPushToken, pairingData]);
+
+  // Auto-retry failed messages on reconnect
+  useEffect(() => {
+    if (status !== 'connected') return;
+    setMessages(prev => {
+      const failedMsgs = prev.filter(m => m.status === 'failed' && m._sendPayload);
+      if (failedMsgs.length === 0) return prev;
+
+      // Retry each failed message
+      failedMsgs.forEach(m => {
+        send(m._sendPayload!, undefined, m._sendSessionKey || 'main');
+      });
+
+      // Update all to sent
+      const updated = prev.map(m =>
+        m.status === 'failed' && m._sendPayload
+          ? { ...m, status: 'sent' as const }
+          : m
+      );
+      const currentChat = activeChatRef.current;
+      if (currentChat) {
+        saveChatMessages(currentChat.sessionKey, updated);
+      } else {
+        saveMessages(updated);
+      }
+      return updated;
+    });
+  }, [status, send]);
 
   // Handle incoming messages
   useEffect(() => {
@@ -815,11 +852,16 @@ export function ChatScreen({ navigation }: Props) {
       ? text || `📎 ${attachment.fileName}`
       : text;
 
+    const msgId = `user-${Date.now()}-${Math.random()}`;
+    const sessionKey = activeChat?.sessionKey || 'main';
+
     const newMsg: Message = {
-      id: `user-${Date.now()}-${Math.random()}`,
+      id: msgId,
       text: displayText,
       sender: 'user',
       timestamp: Date.now(),
+      status: 'sending',
+      _sendSessionKey: sessionKey,
       ...(attachment && attachment.mimeType.startsWith('image/') ? { imageUri: attachment.uri } : {}),
     };
 
@@ -838,38 +880,88 @@ export function ChatScreen({ navigation }: Props) {
     setPendingAttachment(null);
     setIsTyping(true);
 
-    const sessionKey = activeChat?.sessionKey || 'main';
-
-    // Get location prefix (non-blocking, best-effort)
-    let locationPrefix = '';
-    try {
-      const { status: locPerm } = await Location.getForegroundPermissionsAsync();
-      if (locPerm === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }).catch(() => []);
-        if (geo) {
-          const parts = [geo.city, geo.region].filter(Boolean);
-          if (parts.length > 0) locationPrefix = `[📍 ${parts.join(', ')}] `;
+    // Helper to update message status + payload
+    const updateMsgStatus = (s: Message['status'], payload?: string) => {
+      setMessages(prev => {
+        const updated = prev.map(m =>
+          m.id === msgId
+            ? { ...m, status: s, ...(payload != null ? { _sendPayload: payload } : {}) }
+            : m
+        );
+        const currentChat = activeChatRef.current;
+        if (currentChat) {
+          saveChatMessages(currentChat.sessionKey, updated);
+        } else {
+          saveMessages(updated);
         }
-      }
-    } catch {}
+        return updated;
+      });
+    };
 
-    if (attachment) {
-      const uploaded = pairingData
-        ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
-        : null;
+    try {
+      // Get location prefix (non-blocking, best-effort)
+      let locationPrefix = '';
+      try {
+        const { status: locPerm } = await Location.getForegroundPermissionsAsync();
+        if (locPerm === 'granted') {
+          const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+          const [geo] = await Location.reverseGeocodeAsync({ latitude: loc.coords.latitude, longitude: loc.coords.longitude }).catch(() => []);
+          if (geo) {
+            const parts = [geo.city, geo.region].filter(Boolean);
+            if (parts.length > 0) locationPrefix = `[📍 ${parts.join(', ')}] `;
+          }
+        }
+      } catch {}
 
-      if (uploaded) {
-        const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
-        const fullMessage = text ? `${mediaTag}\n${locationPrefix}${text}` : `${mediaTag}\n${locationPrefix}`;
-        send(fullMessage, undefined, sessionKey);
+      let finalPayload: string;
+
+      if (attachment) {
+        const uploaded = pairingData
+          ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
+          : null;
+
+        if (uploaded) {
+          const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
+          finalPayload = text ? `${mediaTag}\n${locationPrefix}${text}` : `${mediaTag}\n${locationPrefix}`;
+        } else {
+          finalPayload = locationPrefix + (text || `[Failed to upload: ${attachment.fileName}]`);
+        }
       } else {
-        send(locationPrefix + (text || `[Failed to upload: ${attachment.fileName}]`), undefined, sessionKey);
+        finalPayload = locationPrefix + text;
       }
-    } else {
-      send(locationPrefix + text, undefined, sessionKey);
+
+      if (status === 'connected') {
+        send(finalPayload, undefined, sessionKey);
+        updateMsgStatus('sent', finalPayload);
+      } else {
+        // WS not connected — mark as failed with payload for retry
+        updateMsgStatus('failed', finalPayload);
+      }
+    } catch (err) {
+      console.error('[handleSend] Error:', err);
+      updateMsgStatus('failed');
     }
-  }, [inputText, pendingAttachment, send, activeChat]);
+  }, [inputText, pendingAttachment, send, activeChat, status, pairingData]);
+
+  // Retry a failed message
+  const handleRetry = useCallback((msg: Message) => {
+    if (!msg._sendPayload || status !== 'connected') return;
+    const sessionKey = msg._sendSessionKey || 'main';
+    send(msg._sendPayload, undefined, sessionKey);
+    // Update status to sent
+    setMessages(prev => {
+      const updated = prev.map(m =>
+        m.id === msg.id ? { ...m, status: 'sent' as const } : m
+      );
+      const currentChat = activeChatRef.current;
+      if (currentChat) {
+        saveChatMessages(currentChat.sessionKey, updated);
+      } else {
+        saveMessages(updated);
+      }
+      return updated;
+    });
+  }, [send, status]);
 
   // Footer
   const listFooter = useMemo(() => {
@@ -935,7 +1027,7 @@ export function ChatScreen({ navigation }: Props) {
           ref={flatListRef}
           data={messages}
           keyExtractor={(item) => item.id}
-          renderItem={({ item }) => <MessageBubble message={item} />}
+          renderItem={({ item }) => <MessageBubble message={item} onRetry={handleRetry} />}
           contentContainerStyle={styles.messageList}
           style={styles.messageListContainer}
           onContentSizeChange={() =>

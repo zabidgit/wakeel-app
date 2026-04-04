@@ -6,6 +6,8 @@ export interface PairingData {
   deviceToken?: string;
 }
 
+export type MessageStatus = 'sending' | 'sent' | 'failed';
+
 export interface Message {
   id: string;
   text: string;
@@ -13,6 +15,12 @@ export interface Message {
   timestamp: number;
   /** Local URI for image attachments (user-sent photos) */
   imageUri?: string;
+  /** Delivery status for outbound messages */
+  status?: MessageStatus;
+  /** Full message payload for retry (includes location prefix, media tags, etc.) */
+  _sendPayload?: string;
+  /** Session key for retry */
+  _sendSessionKey?: string;
 }
 
 export interface ChatInfo {

@@ -15,6 +15,7 @@ import { PersonalityScreen } from './src/screens/onboarding/PersonalityScreen';
 import { ProvisioningScreen } from './src/screens/onboarding/ProvisioningScreen';
 import { ReadyScreen } from './src/screens/onboarding/ReadyScreen';
 import { ThemeProvider } from './src/ThemeContext';
+import { ErrorBoundary } from './src/ErrorBoundary';
 import { getPairing, savePairing } from './src/storage';
 import { getAccountToken, clearAccountToken, fetchAccountAndPairing, saveAccountInfo } from './src/auth';
 import { RootStackParamList } from './src/types';
@@ -85,6 +86,7 @@ export default function App() {
   if (!initialRoute) return null;
 
   return (
+    <ErrorBoundary>
     <ThemeProvider>
       <StatusBar barStyle="light-content" backgroundColor="#050505" />
       <NavigationContainer>
@@ -114,5 +116,6 @@ export default function App() {
         </Stack.Navigator>
       </NavigationContainer>
     </ThemeProvider>
+    </ErrorBoundary>
   );
 }
