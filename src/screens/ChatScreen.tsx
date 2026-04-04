@@ -375,19 +375,33 @@ export function ChatScreen({ navigation }: Props) {
 
   // Register push token + sync device context once connected
   const deviceSyncTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const lastRegisteredPushToken = useRef<string | null>(null);
+  const pushRegistrationInFlight = useRef(false);
+  const deviceSyncedOnce = useRef(false);
   useEffect(() => {
-    if (status === 'connected' && !pushTokenSent.current) {
-      pushTokenSent.current = true;
-      registerForPushNotifications().then((token) => {
-        if (token) {
-          sendPushToken(token);
-          registerTokenWithPushServer(token, undefined, pairingData?.token);
-        }
-      });
+    if (status === 'connected') {
+      // Push token: only register if token is new or changed (not on every reconnect)
+      // Lock prevents duplicate registrations from rapid connect/disconnect cycles
+      if (!pushTokenSent.current && !pushRegistrationInFlight.current) {
+        pushTokenSent.current = true;
+        pushRegistrationInFlight.current = true;
+        registerForPushNotifications().then(async (token) => {
+          if (token && token !== lastRegisteredPushToken.current) {
+            sendPushToken(token); // WS registration (fire-and-forget, gateway may not support)
+            const registered = await registerTokenWithPushServer(token, undefined, pairingData?.token);
+            if (registered) {
+              lastRegisteredPushToken.current = token; // Only cache after successful server registration
+            }
+            // If registration failed, lastRegisteredPushToken stays null/old → retries on next reconnect
+          }
+        }).finally(() => {
+          pushRegistrationInFlight.current = false;
+        });
+      }
 
-      // Sync device context (calendar, reminders, location) on connect
-      if (pairingData) {
-        const serverUrl = pairingData.url.replace(/\/ws\/?$/, '').replace(/:\d+$/, '');
+      // Device sync: only start the interval once per app session
+      if (!deviceSyncedOnce.current && pairingData) {
+        deviceSyncedOnce.current = true;
         const baseUrl = 'https://app.getwakeel.app';
         syncDeviceContext(baseUrl, pairingData.token);
 
@@ -400,10 +414,9 @@ export function ChatScreen({ navigation }: Props) {
     }
     if (status === 'disconnected') {
       pushTokenSent.current = false;
-      if (deviceSyncTimer.current) {
-        clearInterval(deviceSyncTimer.current);
-        deviceSyncTimer.current = null;
-      }
+      // Don't reset lastRegisteredPushToken — only re-register if token actually changes
+      // Don't clear device sync timer — let it run across reconnects
+      // (syncs are best-effort HTTP, independent of WS state)
     }
   }, [status, sendPushToken, pairingData]);
 
