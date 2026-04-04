@@ -478,13 +478,28 @@ export function ChatScreen({ navigation }: Props) {
         // Build a set of existing message texts for dedup (stripped of location prefix)
         const existingTexts = new Set(prev.map(m => stripLocationPrefix(m.text)));
 
+        // Clean user messages from history: strip server-only metadata
+        // (media tags, location prefix) that shouldn't display in chat
+        const cleanUserHistoryText = (text: string): string => {
+          let cleaned = text;
+          // Strip [media attached: ... ] tags (server-side image references)
+          cleaned = cleaned.replace(/\[media attached:[^\]]*\]\s*/g, '');
+          // Strip [Failed to upload: ... ] tags
+          cleaned = cleaned.replace(/\[Failed to upload:[^\]]*\]\s*/g, '');
+          // Strip location prefix [📍 ...]
+          cleaned = cleaned.replace(/^\[📍[^\]]*\]\s*/, '');
+          return cleaned.trim();
+        };
+
         // Only add history messages not already in local state
-        // Also strip location prefix from user messages returned by history
         const newFromHistory = historyConverted
           .map(hm => hm.sender === 'user'
-            ? { ...hm, text: hm.text.replace(/^\[📍[^\]]*\]\s*/, '') }
+            ? { ...hm, text: cleanUserHistoryText(hm.text) }
             : hm)
-          .filter(hm => !existingTexts.has(stripLocationPrefix(hm.text)));
+          .filter(hm =>
+            hm.text.trim() !== '' && // Skip messages that become empty after cleaning (e.g. photo-only)
+            !existingTexts.has(stripLocationPrefix(hm.text))
+          );
 
         if (newFromHistory.length === 0) return prev;
 
