@@ -458,6 +458,15 @@ export function ChatScreen({ navigation }: Props) {
   }, [status, send]);
 
   // Handle incoming messages
+  // Filter patterns for system/internal messages that shouldn't display
+  const SUPPRESSED_PATTERNS = [
+    /^NO_REPLY$/i,
+    /^HEARTBEAT_OK$/i,
+    /^Pre-compaction memory flush/i,
+    /^System: \[.*Post-compaction/i,
+    /^Session was just compacted/i,
+  ];
+
   useEffect(() => {
     onMessage((text: string, isFinal: boolean) => {
       if (isFinal) {
@@ -465,6 +474,16 @@ export function ChatScreen({ navigation }: Props) {
         setStreamingMessage(null);
         const streamId = streamingMsgId.current;
         streamingMsgId.current = null;
+
+        // Suppress system/internal messages from display
+        const trimmed = text.trim();
+        if (SUPPRESSED_PATTERNS.some(p => p.test(trimmed))) {
+          // Still clear streaming state but don't add to messages
+          if (streamId) {
+            setMessages(prev => prev.filter(m => m.id !== streamId));
+          }
+          return;
+        }
 
         const finalMsg: Message = {
           id: `wakeel-${Date.now()}-${Math.random()}`,
@@ -546,10 +565,13 @@ export function ChatScreen({ navigation }: Props) {
           .map(hm => hm.sender === 'user'
             ? { ...hm, text: cleanUserHistoryText(hm.text) }
             : hm)
-          .filter(hm =>
-            hm.text.trim() !== '' && // Skip messages that become empty after cleaning (e.g. photo-only)
-            !existingTexts.has(stripLocationPrefix(hm.text))
-          );
+          .filter(hm => {
+            const t = hm.text.trim();
+            if (t === '') return false; // Skip empty (e.g. photo-only after cleaning)
+            if (SUPPRESSED_PATTERNS.some(p => p.test(t))) return false; // Filter system messages
+            if (existingTexts.has(stripLocationPrefix(t))) return false; // Dedup
+            return true;
+          });
 
         if (newFromHistory.length === 0) return prev;
 
