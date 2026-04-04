@@ -1,5 +1,6 @@
 import * as SecureStore from 'expo-secure-store';
 import { PairingData } from './types';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
 const ACCOUNT_TOKEN_KEY = 'wakeel_account_token';
@@ -48,7 +49,7 @@ export async function signInWithAppleOnServer(
   fullName?: string | null,
   email?: string | null,
 ): Promise<{ ok: boolean; accountToken: string; isNewUser: boolean; account: AccountInfo }> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/apple`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/apple`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ identityToken, fullName: fullName || undefined, email: email || undefined }),
@@ -61,7 +62,7 @@ export async function signInWithAppleOnServer(
 export async function signInWithGoogleOnServer(
   idToken: string,
 ): Promise<{ ok: boolean; accountToken: string; isNewUser: boolean; account: AccountInfo }> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/google`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/google`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ idToken }),
@@ -74,7 +75,7 @@ export async function signInWithGoogleOnServer(
 export async function fetchAccountAndPairing(
   accountToken: string,
 ): Promise<{ pairing: PairingData | null; account: AccountInfo }> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/account`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/account`, {
     headers: { Authorization: `Bearer ${accountToken}` },
   });
   const data = await res.json();
@@ -86,7 +87,7 @@ export async function provisionWithAccountToken(
   accountToken: string,
   onboardingData: Record<string, unknown>,
 ): Promise<PairingData> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/provision`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/provision`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -100,7 +101,7 @@ export async function provisionWithAccountToken(
 }
 
 export async function deleteAccount(accountToken: string): Promise<void> {
-  await fetch(`${PROVISION_API_URL}/api/auth/account`, {
+  await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/account`, {
     method: 'DELETE',
     headers: { Authorization: `Bearer ${accountToken}` },
   });
@@ -109,7 +110,7 @@ export async function deleteAccount(accountToken: string): Promise<void> {
 export async function createInvite(
   accountToken: string,
 ): Promise<{ inviteCode: string; expiresAt: string }> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/invite`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/invite`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -127,7 +128,7 @@ export async function acceptInvite(
   inviteCode: string,
   onboardingData: Record<string, unknown>,
 ): Promise<PairingData> {
-  const res = await fetch(`${PROVISION_API_URL}/api/auth/invite/accept`, {
+  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/invite/accept`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { Platform } from 'react-native';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 // Suppress notifications when app is in foreground — user is already reading the chat.
 // Push only shows banner/sound when app is backgrounded or killed (iOS default behavior).
@@ -62,7 +63,7 @@ export async function registerTokenWithPushServer(
 ): Promise<boolean> {
   if (!gatewayToken) return false; // No auth = no registration
   try {
-    const res = await fetch(`${PUSH_SERVER_URL}/push/register`, {
+    const res = await fetchWithTimeout(`${PUSH_SERVER_URL}/push/register`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

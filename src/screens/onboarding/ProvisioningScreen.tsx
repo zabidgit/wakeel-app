@@ -14,6 +14,7 @@ import { colors, spacing } from '../../theme';
 import { RootStackParamList, PairingData } from '../../types';
 import { savePairing, clearMessages } from '../../storage';
 import { provisionWithAccountToken, saveAccountToken, saveAccountInfo } from '../../auth';
+import { fetchWithTimeout } from '../../fetchWithTimeout';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
 const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
@@ -120,14 +121,14 @@ export function ProvisioningScreen({ navigation, route }: Props) {
           pairingData = result;
         } else {
           // Dev/manual flow: direct API key provision
-          const response = await fetch(`${PROVISION_API_URL}/api/provision`, {
+          const response = await fetchWithTimeout(`${PROVISION_API_URL}/api/provision`, {
             method: 'POST',
             headers: {
               'Authorization': `Bearer ${PROVISION_API_KEY}`,
               'Content-Type': 'application/json',
             },
             body: JSON.stringify(onboardingBody),
-          });
+          }, 60000); // 60s — provisioning spins up a container
           if (!response.ok) {
             const text = await response.text();
             throw new Error(text || `Provisioning failed (${response.status})`);

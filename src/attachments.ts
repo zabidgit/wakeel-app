@@ -3,6 +3,7 @@ import * as DocumentPicker from 'expo-document-picker';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 // @ts-ignore — expo-file-system/legacy exports are correct at runtime
 import { readAsStringAsync } from 'expo-file-system/legacy';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 export interface AttachmentResult {
   uri: string;
@@ -87,7 +88,7 @@ export async function uploadAttachment(
   try {
     const uploadUrl = `${gatewayOrigin.replace(/\/$/, '')}/upload`;
     
-    const response = await fetch(uploadUrl, {
+    const response = await fetchWithTimeout(uploadUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -98,7 +99,7 @@ export async function uploadAttachment(
         mimeType: attachment.mimeType,
         fileName: attachment.fileName,
       }),
-    });
+    }, 30000); // 30s — attachments can be large
 
     if (!response.ok) {
       console.error('Upload failed:', response.status);

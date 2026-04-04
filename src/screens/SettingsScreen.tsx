@@ -22,6 +22,7 @@ import { spacing, getThemeColors } from '../theme';
 import { getPairing, clearPairing, clearMessages, getChats, clearChatMessages } from '../storage';
 import { endSession } from '../useWebSocket';
 import { PairingData, RootStackParamList } from '../types';
+import { fetchWithTimeout } from '../fetchWithTimeout';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
 const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
@@ -279,7 +280,7 @@ export function SettingsScreen({ navigation }: Props) {
                   ? new URL(pairing.url).hostname.split('.')[0]
                   : null;
                 if (clientId) {
-                  await fetch(`${PROVISION_API_URL}/api/provision/${clientId}`, {
+                  await fetchWithTimeout(`${PROVISION_API_URL}/api/provision/${clientId}`, {
                     method: 'DELETE',
                     headers: { 'Authorization': `Bearer ${PROVISION_API_KEY}` },
                   });

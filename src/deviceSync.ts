@@ -1,5 +1,6 @@
 import * as Calendar from 'expo-calendar';
 import * as Location from 'expo-location';
+import { fetchWithTimeout } from './fetchWithTimeout';
 
 export interface DeviceContext {
   location?: {
@@ -133,7 +134,7 @@ export async function syncDeviceContext(
     } catch {}
 
     // Send to server
-    await fetch(`${serverUrl}/api/device-sync`, {
+    await fetchWithTimeout(`${serverUrl}/api/device-sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
