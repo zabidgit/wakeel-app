@@ -735,12 +735,20 @@ export function ChatScreen({ navigation }: Props) {
     if (text) {
       // Auto-send the transcribed message
       const finalText = inputText.trim() ? `${inputText.trim()} ${text}` : text;
-      send(finalText);
+      const msgId = `user-${Date.now()}-${Math.random()}`;
+      const sessionKey = activeChatRef.current?.sessionKey || 'main';
+      const isConnected = status === 'connected';
+      if (isConnected) {
+        send(finalText, undefined, sessionKey);
+      }
       const newMsg: Message = {
-        id: `user-${Date.now()}`,
+        id: msgId,
         text: finalText,
         sender: 'user',
         timestamp: Date.now(),
+        status: isConnected ? 'sent' : 'failed',
+        _sendPayload: finalText,
+        _sendSessionKey: sessionKey,
       };
       setMessages(prev => {
         const updated = insertSorted(prev, newMsg);

@@ -14,10 +14,8 @@ import { colors, spacing } from '../../theme';
 import { RootStackParamList, PairingData } from '../../types';
 import { savePairing, clearMessages } from '../../storage';
 import { provisionWithAccountToken, saveAccountToken, saveAccountInfo } from '../../auth';
-import { fetchWithTimeout } from '../../fetchWithTimeout';
 
 const PROVISION_API_URL = 'https://app.getwakeel.app';
-const PROVISION_API_KEY = '2980112b9fb4789c5ffa9161a5a3bea2194cb41c8eb3990819567878a846dea5';
 
 const owlLogo = require('../../../assets/owl-logo.png');
 
@@ -102,7 +100,7 @@ export function ProvisioningScreen({ navigation, route }: Props) {
         await delay(1000);
         if (cancelled) return;
 
-        // Make the API call — use accountToken if available (auth flow), otherwise direct API key (dev/manual)
+        // Build onboarding payload and provision via auth token
         const onboardingBody = {
           wakeclName: data.wakeclName,
           userName: data.userName,
@@ -114,28 +112,13 @@ export function ProvisioningScreen({ navigation, route }: Props) {
           proactiveness: data.proactiveness,
         };
 
-        let pairingData: PairingData;
-        if (accountToken) {
-          // Auth flow: provision via account token
-          const result = await provisionWithAccountToken(accountToken, onboardingBody);
-          pairingData = result;
-        } else {
-          // Dev/manual flow: direct API key provision
-          const response = await fetchWithTimeout(`${PROVISION_API_URL}/api/provision`, {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${PROVISION_API_KEY}`,
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(onboardingBody),
-          }, 60000); // 60s — provisioning spins up a container
-          if (!response.ok) {
-            const text = await response.text();
-            throw new Error(text || `Provisioning failed (${response.status})`);
-          }
-          const result = await response.json();
-          pairingData = { url: result.url, token: result.token, name: result.name || data.wakeclName };
+        if (!accountToken) {
+          throw new Error('Authentication required. Please sign in again.');
         }
+
+        let pairingData: PairingData;
+        const result = await provisionWithAccountToken(accountToken, onboardingBody);
+        pairingData = result;
 
         if (cancelled) return;
 
@@ -175,8 +158,8 @@ export function ProvisioningScreen({ navigation, route }: Props) {
   const handleRetry = () => {
     setError('');
     setCurrentStep(0);
-    // Re-trigger by navigating to self
-    navigation.replace('OnboardingProvisioning', { data });
+    // Re-trigger by navigating to self — preserve accountToken and account
+    navigation.replace('OnboardingProvisioning', { data, accountToken, account });
   };
 
   const steps = STEPS.map((s) => s.replace('{name}', data.wakeclName));

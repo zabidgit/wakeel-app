@@ -252,7 +252,7 @@ These server-side messages are filtered from display:
 ### Your test container
 - **Container:** `wakeel-zain-5936` on `wakeel-clients`
 - **URL:** `https://zain-5936.getwakeel.app`
-- **Gateway token:** `af7d962fb8136959f1d48c1972c6dd91ccb1321d`
+- **Gateway token:** (stored in SecureStore on device — do not commit to repo)
 - **To restart:** `ssh wakeel-clients "docker restart wakeel-zain-5936"`
 - **To check logs:** `ssh wakeel-clients "docker logs wakeel-zain-5936 --tail 30"`
 

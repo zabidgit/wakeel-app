@@ -117,6 +117,8 @@ export async function uploadAttachment(
   }
 }
 
+const MAX_DOCUMENT_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
+
 export async function pickDocument(): Promise<AttachmentResult | null> {
   const result = await DocumentPicker.getDocumentAsync({
     type: '*/*',
@@ -126,6 +128,10 @@ export async function pickDocument(): Promise<AttachmentResult | null> {
   if (result.canceled || !result.assets[0]) return null;
 
   const asset = result.assets[0];
+
+  if (asset.size && asset.size > MAX_DOCUMENT_SIZE_BYTES) {
+    throw new Error(`File too large (${Math.round(asset.size / 1024 / 1024)}MB). Maximum size is 10MB.`);
+  }
 
   // Read file as base64
   let base64 = '';
