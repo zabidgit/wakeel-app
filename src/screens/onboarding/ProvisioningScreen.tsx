@@ -14,8 +14,7 @@ import { colors, spacing } from '../../theme';
 import { RootStackParamList, PairingData } from '../../types';
 import { savePairing, clearMessages } from '../../storage';
 import { provisionWithAccountToken, saveAccountToken, saveAccountInfo } from '../../auth';
-
-const PROVISION_API_URL = 'https://app.getwakeel.app';
+import { PROVISION_API_URL } from '../../constants';
 
 const owlLogo = require('../../../assets/owl-logo.png');
 
@@ -117,7 +116,13 @@ export function ProvisioningScreen({ navigation, route }: Props) {
         }
 
         let pairingData: PairingData;
-        const result = await provisionWithAccountToken(accountToken, onboardingBody);
+        const result = await provisionWithAccountToken(accountToken, onboardingBody, (step) => {
+          // Update step text from server progress (if not cancelled)
+          if (!cancelled && step) {
+            if (step.includes('Creating')) setCurrentStep(1);
+            else if (step.includes('Configuring') || step.includes('Ready')) setCurrentStep(2);
+          }
+        });
         pairingData = result;
 
         if (cancelled) return;

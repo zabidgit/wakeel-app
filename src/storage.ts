@@ -18,6 +18,8 @@ export async function getPairing(): Promise<PairingData | null> {
   try {
     return JSON.parse(raw);
   } catch {
+    console.error('[storage] Corrupted pairing data — clearing');
+    await SecureStore.deleteItemAsync(PAIRING_KEY);
     return null;
   }
 }
@@ -39,6 +41,8 @@ export async function getMessages(): Promise<Message[]> {
   try {
     return JSON.parse(raw);
   } catch {
+    console.error('[storage] Corrupted messages — clearing');
+    await AsyncStorage.removeItem(MESSAGES_KEY);
     return [];
   }
 }
@@ -59,6 +63,8 @@ export async function getChatMessages(sessionKey: string): Promise<Message[]> {
   try {
     return JSON.parse(raw);
   } catch {
+    console.error(`[storage] Corrupted chat messages for ${sessionKey} — clearing`);
+    await AsyncStorage.removeItem(chatMessagesKey(sessionKey));
     return [];
   }
 }
@@ -106,7 +112,10 @@ export async function getChats(): Promise<ChatInfo[]> {
     }
     return chats;
   } catch {
-    return [{ ...DEFAULT_CHAT, createdAt: Date.now() }];
+    console.error('[storage] Corrupted chats data — resetting to defaults');
+    const defaultChats = [{ ...DEFAULT_CHAT, createdAt: Date.now() }];
+    await AsyncStorage.setItem(CHATS_KEY, JSON.stringify(defaultChats));
+    return defaultChats;
   }
 }
 

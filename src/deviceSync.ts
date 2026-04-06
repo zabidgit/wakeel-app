@@ -48,7 +48,7 @@ export async function syncDeviceContext(
     try {
       const { status } = await Location.getForegroundPermissionsAsync();
       if (status === 'granted') {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const loc = await Location.getLastKnownPositionAsync() || await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
         const [geo] = await Location.reverseGeocodeAsync({
           latitude: loc.coords.latitude,
           longitude: loc.coords.longitude,
@@ -61,7 +61,7 @@ export async function syncDeviceContext(
           timestamp: loc.timestamp,
         };
       }
-    } catch {}
+    } catch (e) { console.error('[deviceSync] location:', e); }
 
     // Calendar events (next 7 days)
     try {
@@ -103,7 +103,7 @@ export async function syncDeviceContext(
           context.calendars = Array.from(calMap.values()).filter(c => c.events.length > 0);
         }
       }
-    } catch {}
+    } catch (e) { console.error('[deviceSync] calendar:', e); }
 
     // Reminders (iOS only)
     try {
@@ -131,7 +131,7 @@ export async function syncDeviceContext(
           }));
         }
       }
-    } catch {}
+    } catch (e) { console.error('[deviceSync] reminders:', e); }
 
     // Send to server
     await fetchWithTimeout(`${serverUrl}/api/device-sync`, {

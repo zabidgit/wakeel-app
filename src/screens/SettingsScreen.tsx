@@ -24,8 +24,7 @@ import { endSession } from '../useWebSocket';
 import { PairingData, RootStackParamList } from '../types';
 import { fetchWithTimeout } from '../fetchWithTimeout';
 import Constants from 'expo-constants';
-
-const PROVISION_API_URL = 'https://app.getwakeel.app';
+import { PROVISION_API_URL } from '../constants';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList, 'Settings'>;

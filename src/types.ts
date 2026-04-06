@@ -21,6 +21,8 @@ export interface Message {
   _sendPayload?: string;
   /** Session key for retry */
   _sendSessionKey?: string;
+  /** Number of times this message has been retried */
+  _retryCount?: number;
 }
 
 export interface ChatInfo {

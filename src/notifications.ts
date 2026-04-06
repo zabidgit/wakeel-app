@@ -49,7 +49,7 @@ export async function registerForPushNotifications(): Promise<string | null> {
 }
 
 // Push server base URL (same as media upload server)
-const PUSH_SERVER_URL = 'https://app.getwakeel.app';
+import { PROVISION_API_URL as PUSH_SERVER_URL } from './constants';
 
 /**
  * Register Expo push token with the push server so it can send

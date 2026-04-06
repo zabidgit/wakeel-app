@@ -31,8 +31,11 @@ import {
   saveChatMessages,
   clearChatMessages,
 } from '../storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as Haptics from 'expo-haptics';
 import { useWebSocket, Attachment, HistoryMessage } from '../useWebSocket';
 import { Message, ConnectionStatus, ChatInfo, RootStackParamList } from '../types';
+import { PROVISION_API_URL } from '../constants';
 import { MessageContent } from '../components/MessageContent';
 import { TypingIndicator } from '../components/TypingIndicator';
 import { StreamingCursor } from '../components/StreamingCursor';
@@ -130,7 +133,10 @@ export function ChatScreen({ navigation }: Props) {
   const { status, send, sendPushToken, connect, onMessage, onHistory } = useWebSocket();
   const insets = useSafeAreaInsets();
 
-  // Keep ref in sync for use in callbacks
+  // Keep refs in sync for use in async callbacks (closures capture stale state)
+  const statusRef = useRef(status);
+  useEffect(() => { statusRef.current = status; }, [status]);
+
   useEffect(() => {
     activeChatRef.current = activeChat;
   }, [activeChat]);
@@ -309,6 +315,8 @@ export function ChatScreen({ navigation }: Props) {
             }
             // If registration failed, lastRegisteredPushToken stays null/old → retries on next reconnect
           }
+        }).catch(err => {
+          console.error('[push] Registration failed:', err);
         }).finally(() => {
           pushRegistrationInFlight.current = false;
         });
@@ -317,15 +325,22 @@ export function ChatScreen({ navigation }: Props) {
       // Device sync: only start the interval once per app session
       if (!deviceSyncedOnce.current && pairingData) {
         deviceSyncedOnce.current = true;
-        const baseUrl = 'https://app.getwakeel.app';
-        syncDeviceContext(baseUrl, pairingData.token);
+        syncDeviceContext(PROVISION_API_URL, pairingData.token);
 
         // Re-sync every 15 minutes
         if (deviceSyncTimer.current) clearInterval(deviceSyncTimer.current);
         deviceSyncTimer.current = setInterval(() => {
-          syncDeviceContext(baseUrl, pairingData.token);
+          syncDeviceContext(PROVISION_API_URL, pairingData.token);
         }, 15 * 60 * 1000);
       }
+
+      // Send onboarding context as first message (one-time, after provisioning)
+      AsyncStorage.getItem('wakeel_onboarding_context').then(ctx => {
+        if (ctx) {
+          send(ctx, undefined, 'main');
+          AsyncStorage.removeItem('wakeel_onboarding_context');
+        }
+      }).catch(() => {});
     }
     if (status === 'disconnected') {
       pushTokenSent.current = false;
@@ -333,13 +348,14 @@ export function ChatScreen({ navigation }: Props) {
       // Don't clear device sync timer — let it run across reconnects
       // (syncs are best-effort HTTP, independent of WS state)
     }
-  }, [status, sendPushToken, pairingData]);
+  }, [status, send, sendPushToken, pairingData]);
 
-  // Auto-retry failed messages on reconnect
+  // Auto-retry failed messages on reconnect (max 3 retries per message)
   useEffect(() => {
     if (status !== 'connected') return;
     setMessages(prev => {
-      const failedMsgs = prev.filter(m => m.status === 'failed' && m._sendPayload);
+      const MAX_RETRIES = 3;
+      const failedMsgs = prev.filter(m => m.status === 'failed' && m._sendPayload && (m._retryCount || 0) < MAX_RETRIES);
       if (failedMsgs.length === 0) return prev;
 
       // Retry each failed message
@@ -347,10 +363,10 @@ export function ChatScreen({ navigation }: Props) {
         send(m._sendPayload!, undefined, m._sendSessionKey || 'main');
       });
 
-      // Update all to sent
+      // Update retried to sent, increment retry count; leave exhausted messages as failed
       const updated = prev.map(m =>
-        m.status === 'failed' && m._sendPayload
-          ? { ...m, status: 'sent' as const }
+        m.status === 'failed' && m._sendPayload && (m._retryCount || 0) < MAX_RETRIES
+          ? { ...m, status: 'sent' as const, _retryCount: (m._retryCount || 0) + 1 }
           : m
       );
       const currentChat = activeChatRef.current;
@@ -425,6 +441,15 @@ export function ChatScreen({ navigation }: Props) {
       }
     });
   }, [onMessage]);
+
+  // Streaming timeout — if typing indicator is stuck for 5 minutes, clear it
+  useEffect(() => {
+    if (!isTyping) return;
+    const timeout = setTimeout(() => {
+      setIsTyping(false);
+    }, 5 * 60 * 1000);
+    return () => clearTimeout(timeout);
+  }, [isTyping]);
 
   // Handle history loaded on reconnect
   useEffect(() => {
@@ -642,6 +667,7 @@ export function ChatScreen({ navigation }: Props) {
 
   const handleMicPress = useCallback(async () => {
     if (voiceState !== 'idle') return; // debounce
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
 
     let granted = false;
     try {
@@ -684,6 +710,7 @@ export function ChatScreen({ navigation }: Props) {
 
   const handleStopRecording = useCallback(async () => {
     if (voiceStateRef.current !== 'recording') return; // double-stop guard
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
 
     if (autoStopTimer.current) {
       clearTimeout(autoStopTimer.current);
@@ -729,7 +756,7 @@ export function ChatScreen({ navigation }: Props) {
       return;
     }
 
-    const text = await transcribeAudio(base64, 'https://app.getwakeel.app', pairingData.token);
+    const text = await transcribeAudio(base64, PROVISION_API_URL, pairingData.token);
     setVoiceState('idle');
 
     if (text) {
@@ -737,7 +764,7 @@ export function ChatScreen({ navigation }: Props) {
       const finalText = inputText.trim() ? `${inputText.trim()} ${text}` : text;
       const msgId = `user-${Date.now()}-${Math.random()}`;
       const sessionKey = activeChatRef.current?.sessionKey || 'main';
-      const isConnected = status === 'connected';
+      const isConnected = statusRef.current === 'connected';
       if (isConnected) {
         send(finalText, undefined, sessionKey);
       }
@@ -783,6 +810,7 @@ export function ChatScreen({ navigation }: Props) {
     const attachment = pendingAttachment;
 
     if (!text && !attachment) return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
 
     const displayText = attachment
       ? text || `📎 ${attachment.fileName}`
@@ -856,14 +884,19 @@ export function ChatScreen({ navigation }: Props) {
 
       if (attachment) {
         const uploaded = pairingData
-          ? await uploadAttachment(attachment, 'https://app.getwakeel.app', pairingData.token)
+          ? await uploadAttachment(attachment, PROVISION_API_URL, pairingData.token)
           : null;
 
         if (uploaded) {
           const mediaTag = `[media attached: ${uploaded.path} (${uploaded.mimeType}) | ${uploaded.path}]`;
           finalPayload = text ? `${mediaTag}\n${locationPrefix}${text}` : `${mediaTag}\n${locationPrefix}`;
         } else {
-          finalPayload = locationPrefix + (text || `[Failed to upload: ${attachment.fileName}]`);
+          Alert.alert('Upload Failed', `Could not upload ${attachment.fileName}. The message will be sent without the attachment.`);
+          finalPayload = locationPrefix + (text || '');
+          if (!finalPayload.trim()) {
+            updateMsgStatus('failed');
+            return;
+          }
         }
       } else {
         finalPayload = locationPrefix + text;
@@ -885,6 +918,7 @@ export function ChatScreen({ navigation }: Props) {
   // Retry a failed message
   const handleRetry = useCallback((msg: Message) => {
     if (!msg._sendPayload || status !== 'connected') return;
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     const sessionKey = msg._sendSessionKey || 'main';
     send(msg._sendPayload, undefined, sessionKey);
     // Update status to sent
@@ -981,9 +1015,9 @@ export function ChatScreen({ navigation }: Props) {
             </View>
           }
           // Pagination / performance
-          initialNumToRender={30}
-          maxToRenderPerBatch={15}
-          windowSize={11}
+          initialNumToRender={15}
+          maxToRenderPerBatch={10}
+          windowSize={7}
           removeClippedSubviews={Platform.OS === 'android'}
           getItemLayout={undefined}
         />

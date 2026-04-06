@@ -1,8 +1,7 @@
 import * as SecureStore from 'expo-secure-store';
 import { PairingData } from './types';
 import { fetchWithTimeout } from './fetchWithTimeout';
-
-const PROVISION_API_URL = 'https://app.getwakeel.app';
+import { PROVISION_API_URL } from './constants';
 const ACCOUNT_TOKEN_KEY = 'wakeel_account_token';
 const ACCOUNT_INFO_KEY = 'wakeel_account_info';
 
@@ -86,18 +85,57 @@ export async function fetchAccountAndPairing(
 export async function provisionWithAccountToken(
   accountToken: string,
   onboardingData: Record<string, unknown>,
+  onStep?: (step: string) => void,
 ): Promise<PairingData> {
-  const res = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/provision`, {
+  // Start provisioning (returns immediately with jobId)
+  const startRes = await fetchWithTimeout(`${PROVISION_API_URL}/api/auth/provision`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${accountToken}`,
     },
     body: JSON.stringify(onboardingData),
-  });
-  const data = await res.json();
-  if (!data.ok) throw new Error(data.error || 'Provisioning failed');
-  return data.pairing as PairingData;
+  }, 15000);
+  const startData = await startRes.json();
+  if (!startData.ok && startData.pairing) {
+    // Already provisioned — idempotent return
+    return startData.pairing as PairingData;
+  }
+  if (!startData.ok) throw new Error(startData.error || 'Provisioning failed');
+
+  // If server returned pairing directly (already provisioned), use it
+  if (startData.pairing) return startData.pairing as PairingData;
+
+  // Poll for completion
+  const jobId = startData.jobId;
+  if (!jobId) throw new Error('Server did not return a job ID');
+
+  const maxWait = 120000; // 2 minutes
+  const pollInterval = 3000; // 3 seconds
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWait) {
+    await new Promise(r => setTimeout(r, pollInterval));
+
+    const pollRes = await fetchWithTimeout(
+      `${PROVISION_API_URL}/api/auth/provision/status?jobId=${jobId}`,
+      { headers: { Authorization: `Bearer ${accountToken}` } },
+      10000,
+    );
+    const pollData = await pollRes.json();
+    if (!pollData.ok) throw new Error(pollData.error || 'Status check failed');
+
+    if (onStep && pollData.step) onStep(pollData.step);
+
+    if (pollData.status === 'done' && pollData.pairing) {
+      return pollData.pairing as PairingData;
+    }
+    if (pollData.status === 'error') {
+      throw new Error(pollData.error || 'Provisioning failed');
+    }
+  }
+
+  throw new Error('Provisioning timed out. Please try again.');
 }
 
 export async function deleteAccount(accountToken: string): Promise<void> {

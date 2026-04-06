@@ -67,7 +67,10 @@ export default function App() {
 
     const checkForUpdate = async () => {
       try {
-        const update = await Updates.checkForUpdateAsync();
+        const update = await Promise.race([
+          Updates.checkForUpdateAsync(),
+          new Promise<never>((_, reject) => setTimeout(() => reject(new Error('timeout')), 5000)),
+        ]);
         if (update.isAvailable) {
           await Updates.fetchUpdateAsync();
           setUpdateReady(true);
